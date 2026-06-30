@@ -1,0 +1,317 @@
+# Dokumen Spesifikasi Teknis & Panduan Implementasi Prototipe
+## Proyek: Kirimin — Crowdsourced Logistics Web App
+
+### A. Latar Belakang Konteks
+Aplikasi **Kirimin** memvalidasi model logistik berbasis jaringan komuter (*hitchhiking* paket) di mana pengguna memanfaatkan rute perjalanan harian rutin mereka untuk mengantar barang titipan yang searah. Tantangan rekayasa utama yang ingin dijawab oleh prototipe ini adalah:
+1. Validasi visual logika matematika arah *waypoint* berantai (memastikan pengemudi tidak berjalan berlawanan arah dengan rute paket).
+2. Simulasi sinkronisasi data instan antar aktor (Pengirim dan Pengemudi) pada satu perangkat komputasi yang sama.
+
+### B. Solusi Pengujian Multi-Aktor pada 1 Perangkat
+Karena aplikasi ini harus diuji coba pada **satu laptop**, arsitektur aplikasi sengaja dirancang untuk membuang kebutuhan *login/logout*. Pengembang cukup membuka dua atau lebih jendela browser berdampingan (*Split-Screen*) dengan parameter URL berbeda (`?role=pengirim` dan `?role=driver`). Browser akan mengisolasi penyimpanan lokal masing-masing atau saling berbagi via event penyimpanan (*storage event*) untuk menyimulasikan dua orang berbeda yang sedang menggunakan aplikasi di ponsel mereka masing-masing.
+
+---
+
+Dokumen ini berfungsi sebagai spesifikasi arsitektur, kebutuhan antarmuka (Figma Design Rules), alur proses, perancangan basis data, dan panduan struktur file untuk prototipe aplikasi *hitchhiking* paket berbasis web bernama **Kirimin**. Aplikasi ini dirancang untuk dijalankan sepenuhnya pada **Satu Laptop (Single-Device Sandbox Development)** menggunakan interaksi lintas tab browser tanpa *backend* fisik.
+
+---
+
+## 1. Arsitektur Utama & Strategi Prototipe
+
+### A. Strategi URL & Manajemen Role (No-Auth)
+Untuk mempercepat validasi konsep tanpa beban pengembangan sistem registrasi, identifikasi peran (*role*) dan sesi pengguna didasarkan pada parameter URL query:
+* `?role=pengirim` $\rightarrow$ Mengaktifkan Alur Pengirim (*Sender Flow*)
+* `?role=driver` $\rightarrow$ Mengaktifkan Alur Pengemudi (*Driver Flow*)
+* Tanpa Parameter $\rightarrow$ Merender halaman Beranda / *Role Selector* awal.
+
+### B. Arsitektur Navigasi Bebas Router
+Navigasi antar halaman dikendalikan sepenuhnya melalui *state machine* internal di dalam komponen utama `App.tsx` menggunakan variabel state `screen` (Tipe data: *string*). Fungsi navigasi dilemparkan ke komponen anak sebagai *props* untuk memicu perubahan halaman secara instan.
+
+### C. Simulasi Real-time Lintas Tab (Mock WebSockets)
+Komunikasi data *real-time* antara tab Pengirim dan tab Driver disimulasikan menggunakan **`localStorage` bersama dengan Event Listener `window.addEventListener('storage')`**. 
+* Ketika tab Pengirim mengubah status pesanan, data ditulis ke `localStorage`.
+* Tab Driver mendeteksi perubahan tersebut melalui *event storage* secara instan, menyimulasikan transmisi jaringan *WebSockets* (`io.emit`).
+
+### D. Algoritma Matching Geospasial (Frontend In-Memory)
+Pencocokan rute dilakukan di sisi klien (*in-memory*) memanfaatkan fungsi matematika rumus *Haversine* untuk menghitung jarak lingkaran besar antara dua koordinat bumi:
+
+$$d = 2R \arcsin\left(\sqrt{\sin^2\left(\frac{\Delta\phi}{2}\right) + \cos(\phi_1)\cos(\phi_2)\sin^2\left(\frac{\Delta\lambda}{2}\right)}\right)$$
+
+Sistem menyaring daftar rute aktif berdasarkan batasan jarak deviasi melipir maksimal **3 km** dan kecocokan urutan arah *waypoint* berantai driver.
+
+---
+
+## 2. Aturan Desain Visual (Figma Design Token Contract)
+
+Seluruh komponen wajib mengikuti parameter visual yang diekstrak langsung dari aset Figma berikut:
+
+* **Tipografi:** Font Utama menggunakan **Inter** (Regular 400, Medium 500, Bold 700).
+* **Sistem Ikon:** Menggunakan **Material Icons** (Gunakan variasi *Filled* untuk status aktif/terpilih, dan variasi *Outlined* untuk status tidak aktif/standar).
+* **Token Warna Utama:**
+  * Komponen Peta & Latar Gradasi Aktif: `bg-gradient-to-b from-[#8eadf0] to-[#2091e7]`
+  * Warna Dasar Biru Figma: `#6a9cf4`
+  * Garis Penghubung Langkah (*Step Connector*): Dashed / Putus-putus dengan warna `#6A6A6A`
+* **Layouting & Kontainer:**
+  * Kartu UI (*Cards*): Berwarna putih murni, bersudut lengkung `rounded-[20px]`, dengan efek `shadow` atau `drop-shadow` tipis.
+  * Tombol Utama (Primary CTA): Lebar penuh (*full-width*), gradasi biru, `rounded-[20px]`, teks putih bold.
+  * Komponen Header: Tombol kembali (*back button*) berbentuk pil putih bulat + teks judul (Inter Medium 16px).
+  * Badge Rute (*Waypoints*): Lingkaran gradasi biru berlabel angka urutan putih ($1, 2, 3$).
+
+---
+
+## 3. Spesifikasi Detail Halaman (Screens Description)
+
+Bagian ini mendefinisikan komponen masukan (Input), informasi yang disajikan (Output), dan aksi navigasi dari setiap halaman di dalam aplikasi Kirimin.
+
+### A. Gerbang Utama & Fitur Bersama (Core & Shared Screens)
+
+#### 1. Homepage.tsx (Hub Sentral Utama)
+*   **Fungsi:** Sebagai gerbang awal aplikasi mobile saat dibuka. Menyediakan navigasi instan ke fitur logistik dan manajemen akun.
+*   **Elemen Input/Aksi:** 
+    *   Tombol Grid 1: Klik "Kirim Paket" $\rightarrow$ Navigasi ke `KirimDetail`.
+    *   Tombol Grid 2: Klik "Angkut Paket" $\rightarrow$ Navigasi ke `Angkut`.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Sapaan Pengguna tiruan (*e.g., "Halo, Pengguna Sandbox!"*).
+    *   *Banner* ringkasan: Jumlah paket aktif yang sedang Anda kirim dan status perjalanan driver Anda (jika ada).
+    *   Komponen `BottomNav` aktif pada tab "Beranda".
+
+#### 2. LiveChat.tsx (Daftar & Ruang Obrolan Real-time)
+*   **Fungsi:** Mengelola daftar obrolan masuk dan menyediakan ruang diskusi interpersonal aktif antara pengirim dan driver.
+*   **Elemen Input/Aksi:**
+    *   *Kondisi 1 (Daftar Pesan):* Klik salah satu baris chat $\rightarrow$ Masuk ke sub-layar obrolan spesifik.
+    *   *Kondisi 2 (Ruang Obrolan):* Bidang teks untuk mengetik pesan + Tombol "Kirim" $\rightarrow$ Memicu penulisan data ke `localStorage`.
+*   **Informasi yang Ditampilkan (Output):**
+    *   *Daftar Pesan:* Daftar pengirim/driver yang terhubung, potongan pesan terakhir, penanda `paketId`, dan indikator status belum dibaca.
+    *   *Ruang Obrolan:* Riwayat balon obrolan (Biru untuk pesan Anda, Abu-abu untuk lawan bicara) lengkap dengan *timestamp* waktu kirim.
+
+#### 3. SetelanAkun.tsx (Pengaturan Profil & Preset)
+*   **Fungsi:** Tempat simulasi konfigurasi data pribadi, alamat favorit, dan pemeliharaan data pengujian lokal.
+*   **Elemen Input/Aksi:**
+    *   Tombol "Tambah Alamat Preset": Input teks nama label (e.g., Rumah, Kantor) + Input alamat teks.
+    *   Tombol Merah "Reset Sandbox Data": Menghapus seluruh memori `localStorage` dan mengembalikan state aplikasi ke nol.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Detail Akun: Nama tiruan, nomor telepon, dan status tipe kendaraan default.
+    *   List Alamat Preset: Daftar alamat favorit yang sudah disimpan pengguna beserta koordinat internalnya.
+
+---
+
+### B. Alur Pengirim (Sender Screens Flow)
+
+#### 1. KirimDetail.tsx (Spesifikasi Muatan Barang)
+*   **Fungsi:** Mengumpulkan data fisik dan instruksi keamanan paket yang akan dikirim.
+*   **Elemen Input/Aksi:**
+    *   Dropdown: Kategori barang (Dokumen, Pakaian, Makanan, Elektronik, Lainnya).
+    *   File Input: Unggah foto fisik barang (Disimulasikan mengambil nama berkas lokal).
+    *   Opsi Pilihan (*Chips*): Ukuran preset barang (XS, S, M, L, XL).
+    *   Multi-Checkbox: Peringatan Penanganan (Mudah Pecah, Jaga dari Air, Harus Tegak, Jaga Suhu).
+    *   Text Area: Deskripsi detail barang.
+    *   Checkbox: "Simpan barang sebagai preset".
+    *   Tombol Utama: "Lanjut" $\rightarrow$ Navigasi ke `KirimRute`.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Komponen `StepHeader` aktif di Langkah 1 ("Detail").
+    *   Daftar *Preset Barang* masa lalu di bagian bawah untuk pengisian form instan.
+
+#### 2. KirimRute.tsx (Penentuan Geospasial & Penyerahan)
+*   **Fungsi:** Menetapkan titik jemput, titik antar paket, serta mekanisme serah-terima fisik barang.
+*   **Elemen Input/Aksi:**
+    *   Form Teks: Input alamat penjemputan & alamat destinasi.
+    *   Opsi Pilihan (*Chips*): Metode Penyerahan Barang ("Bertemu Langsung" atau "Tinggalkan di Lokasi").
+    *   Text Input: Instruksi tambahan (e.g., *"Titip ke security"*).
+    *   Tombol Utama: "Lanjut" $\rightarrow$ Navigasi ke `KirimPesan`.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Komponen `StepHeader` aktif di Langkah 2 ("Rute").
+    *   Komponen `MapPickDrop` untuk memvalidasi posisi pin marker pengirim.
+    *   Kalkulasi awal estimasi harga dasar berdasarkan jarak garis lurus.
+
+#### 3. KirimPesan.tsx (Pemilihan Komuter Searah & Harga Fleksibel)
+*   **Fungsi:** Menampilkan daftar pengemudi yang searah dan melakukan kalkulasi biaya final.
+*   **Elemen Input/Aksi:**
+    *   Opsi Waktu: "Kirim Sekarang", "Waktu Tertentu" (Pilih Jam), "Dalam Sehari Ini".
+    *   Klik Kartu Driver: Memilih pengemudi tertentu dari daftar hasil pencocokan.
+    *   Tombol Utama: "Pesan" $\rightarrow$ Menulis pesanan aktif ke storage, memicu trigger event lintas tab $\rightarrow$ Navigasi ke `KirimMencariDriver`.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Komponen `StepHeader` aktif di Langkah 3 ("Pesan").
+    *   *Section 1:* Daftar Driver "Rute Langsung" (Skor kecocokan tinggi, tanpa biaya tambahan).
+    *   *Section 2:* Daftar Driver "Rute dengan Simpangan" (Menampilkan penanda harga tambahan melipir).
+    *   Rincian Total Biaya: Harga dasar + Biaya Tambahan Melipir (*Detour Fee*).
+
+#### 4. KirimMencariDriver.tsx (Layar Tunggu Penjaringan)
+*   **Fungsi:** Menyimulasikan proses pencarian jaringan driver di backend secara visual.
+*   **Elemen Input/Aksi:**
+    *   Tombol Keluar: "Batal Pemesanan" $\rightarrow$ Navigasi kembali ke `KirimPesan`.
+    *   *Pewaktu otomatis (Timeout 2 detik):* Otomatis mengubah status paket di storage menjadi `Menunggu Pick-up` $\rightarrow$ Navigasi ke `KirimDash`.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Latar belakang gradasi biru penuh khas Figma.
+    *   Animasi *CSS Spinner* melingkar besar di tengah layar.
+    *   Teks berjalan animasi: *"Mencari komuter terdekat di rute Anda..."*.
+
+#### 5. KirimDash.tsx (Dasbor Pelacakan Aktif Pengirim)
+*   **Fungsi:** Memantau seluruh paket milik pengirim yang sedang dalam proses logistik.
+*   **Elemen Input/Aksi:**
+    *   Klik Tombol "+": Mengajukan pengiriman paket baru $\rightarrow$ Navigasi ke `KirimDetail`.
+    *   Klik "Hubungi Driver": Membuka sub-layar `LiveChat` untuk paket tersebut.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Peta mini yang menunjukkan posisi paket saat ini.
+    *   Daftar komponen `PackageCard` yang disusun vertikal sesuai jumlah paket aktif.
+    *   Bilah Status Tiga Fase: Grafik visual penanda tahap (*Pengambilan $\rightarrow$ Dalam Perjalanan $\rightarrow$ Telah Tiba*).
+
+#### 6. KirimRiwayat.tsx (Arsip Logistik Pengirim)
+*   **Fungsi:** Menyajikan riwayat transaksi masa lalu dan mempermudah pemesanan ulang.
+*   **Elemen Input/Aksi:**
+    *   Tombol "Kirim Lagi" pada item riwayat: Menyalin seluruh objek data lama ke dalam state $\rightarrow$ Navigasi ke `KirimDetail`.
+*   **Informasi yang Ditampilkan (Output):**
+    *   List paket yang berstatus "Telah Tiba" atau "Dibatalkan".
+    *   Tanggal pengiriman, nama driver masa lalu, dan total biaya pengiriman historis.
+
+---
+
+### C. Alur Pengemudi (Driver Screens Flow)
+
+#### 1. Angkut.tsx (Penyusun Jalur Berantai & Bagasi)
+*   **Fungsi:** Mengumpulkan data rencana perjalanan multi-stop milik pengemudi beserta batas muatan bagasinya.
+*   **Elemen Input/Aksi:**
+    *   Time Picker: Jam keberangkatan pengemudi.
+    *   Form Dinamis Waypoint: Tombol `[+] Tambah Titik` dan `[-] Hapus` alamat rute tujuan berurutan.
+    *   Text Input: Batas Maksimum Jumlah Paket (Angka).
+    *   Opsi Pilihan (*Chips*): Ukuran Maksimal Paket yang sanggup dibawa (XS–XL).
+    *   Multi-Checkbox: Kategori barang yang diterima dan peringatan barang yang ditolak.
+    *   Tombol Utama: "Lanjut ke Dashboard" $\rightarrow$ Navigasi ke `AngkutDash`.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Komponen `MapBerantai` untuk memvisualisasikan garis rute berantai ($1 \rightarrow 2 \rightarrow 3 \rightarrow 4$).
+    *   Daftar *Preset Rute* harian komuter yang bisa diklik untuk pengisian cepat.
+
+#### 2. AngkutDash.tsx (Pusat Kendali Pengemudi & Paket Searah)
+*   **Fungsi:** Menampilkan paket pengirim yang searah dengan rute driver dan mengelola kapasitas bagasi.
+*   **Elemen Input/Aksi:**
+    *   Klik Tombol "Ambil Paket" pada daftar: Mengonfirmasi kesediaan membawa paket $\rightarrow$ Mengubah status paket di storage.
+    *   Tombol Aksi: "Atur rute otomatis" $\rightarrow$ Menyisipkan alamat paket pengirim ke dalam struktur rute berantai driver.
+    *   Tombol Merah: "Berhenti Menerima Paket" $\rightarrow$ Mengunci bagasi $\rightarrow$ Navigasi ke `AngkutProses`.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Peta tinggi penuh (Tall Map) yang menampilkan rute utama driver.
+    *   Komponen `ShortView` yang menampilkan ringkasan rute berantai saat ini.
+    *   Indikator Kontra Kapasitas: e.g., *"Bagasi Terisi: 1 / 3 Paket"*.
+    *   *Grid List Matching:* Menampilkan kartu paket pengirim yang searah dengan label persentase skor kemiripan (`lib/matching.ts`).
+
+#### 3. AngkutProses.tsx (Siklus Pengantaran Perjalanan)
+*   **Fungsi:** Memandu driver menyelesaikan tugas jemput-antar paket saat berada di perjalanan secara sekuensial.
+*   **Elemen Input/Aksi:**
+    *   Tombol Langkah Dinamis (Berubah mengikuti state paket):
+        *   Fase 1: Klik "Konfirmasi Pick-up" (Saat sampai di lokasi pengirim).
+        *   Fase 2: Klik "Konfirmasi Selesai / Drop-off" (Saat menyerahkan paket di lokasi tujuan).
+    *   Aksi Kamera: Memicu penggunaan komponen `BuktiKameraMock`.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Peta navigasi rute aktif.
+    *   Informasi Detail Tugas saat ini: Alamat penjemputan, nama pengirim, catatan instruksi penanganan barang, dan metode drop-off.
+
+#### 4. AngkutRiwayat.tsx (Buku Kas Driver)
+*   **Fungsi:** Menyajikan riwayat pendapatan komuter dari hasil hitchhiking paket.
+*   **Elemen Input/Aksi:** Navigasi kembali ke Beranda.
+*   **Informasi yang Ditampilkan (Output):**
+    *   Ringkasan Keuangan: Total Akumulasi Pendapatan Tambahan (Rupiah).
+    *   Daftar perjalanan berantai yang telah diselesaikan beserta jumlah paket yang sukses diantar pada setiap perjalanan.
+
+---
+
+## 4. Spesifikasi Detail Komponen UI (Components Description)
+
+Komponen-komponen berikut dirancang untuk bersifat modular (*reusable*) agar dapat dipanggil di berbagai halaman dengan konsistensi token desain figma.
+
+### 1. MapPlaceholder.tsx
+*   **Fungsi:** Sebagai wadah representasi grafis peta interaktif (Leaflet.js) selama proses pengembangan lokal.
+*   **Informasi/Visual yang Ditampilkan:** 
+    *   Warna latar belakang gradasi linear sesuai token Figma: `from-[#8eadf0] to-[#2091e7]`.
+    *   Overlay marker lingkaran pin lokasi dan garis jalur penunjuk arah.
+    *   Tombol kecil melayang di sudut kanan bawah berlogo GPS untuk mensimulasikan pencarian lokasi koordinat saat ini.
+
+### 2. BottomNav.tsx
+*   **Fungsi:** Menu navigasi utama aplikasi diletakkan statis pada bagian bawah layar handphone.
+*   **Elemen Input/Aksi:** Klik pada tab memicu perubahan state `screen` global pada `App.tsx`.
+*   **Struktur Menu & Logika Visual:**
+    *   Tab 1: **Beranda** (Ikon: `home` / `home_outlined`) $\rightarrow$ Mengarah ke `Homepage`.
+    *   Tab 2: **Aktivitas** (Ikon: `assignment` / `assignment_outlined`) $\rightarrow$ Mengarah ke `KirimDash` / `AngkutDash` (Tergantung peran aktif).
+    *   Tab 3: **Chat** (Ikon: `chat` / `chat_bubble_outline`) $\rightarrow$ Mengarah ke `LiveChat`.
+    *   Tab 4: **Setelan** (Ikon: `settings` / `settings_outlined`) $\rightarrow$ Mengarah ke `SetelanAkun`.
+    *   *Aturan Ikon:* Jika tab terpilih, render ikon bertipe *Filled*, jika tidak terpilih gunakan tipe *Outlined*.
+
+### 3. StepHeader.tsx
+*   **Fungsi:** Menunjukkan progres pengisian form pembuatan pesanan pada alur pengirim.
+*   **Informasi/Visual yang Ditampilkan:**
+    *   Tiga bulatan penanda berlabel teks: `1. Detail` $\rightarrow$ `2. Rute` $\rightarrow$ `3. Pesan`.
+    *   Garis putus-putus (*Dashed Line*) berwarna gray `#6A6A6A` sebagai penghubung antar bulatan.
+    *   *Indikator Aktif:* Bulatan tahapan yang sedang dibuka akan berwarna gradasi biru dengan teks putih murni, sedangkan tahapan belum selesai berwarna latar putih dengan border abu-abu tipis.
+
+### 4. PackageCard.tsx
+*   **Fungsi:** Menampilkan rangkuman ringkas muatan paket secara terstandarisasi untuk diletakkan di dasbor pengirim maupun pengemudi.
+*   **Informasi/Visual yang Ditampilkan:**
+    *   Sudut lengkung kontainer: `rounded-[20px]` dengan latar belakang putih bersih dan shadow lembut.
+    *   Nama/Kategori Barang beserta gambar thumbnail mini (diambil dari direktori local upload).
+    *   Badge ukuran preset dengan warna tegas (e.g., Badge hijau bertuliskan `[ M ]`).
+    *   Daftar teks kecil ikonik untuk peringatan handling barang (e.g., *💧 Jaga dari Air*, *🍽️ Mudah Pecah*).
+    *   Label teks alamat asal dan alamat tujuan pengiriman.
+
+### 5. BuktiKameraMock.tsx
+*   **Fungsi:** Menyimulasikan fungsi jepretan kamera handphone untuk pengambilan foto bukti serah terima paket tanpa memerlukan perangkat keras kamera asli.
+*   **Elemen Input/Aksi:** Tombol lingkaran putih besar bertuliskan "Ambil Foto Bukti".
+*   **Informasi/Visual yang Ditampilkan:**
+    *   Kotak jendela hitam (*viewfinder* simulasi) menampilkan teks: `[ KAMERA AKTIF: Dekatkan paket pada area drop-off ]`.
+    *   Begitu tombol diklik, sistem secara otomatis mengunci dan menaruh string gambar dummy bukti kirim (`/uploads/bukti_success.png`) ke dalam log manifes perjalanan paket terkait.
+
+---
+
+## 5. Struktur File Proyek Lengkap (Monorepo Blueprint)
+
+Berikut adalah pembaruan struktur direktori proyek **Kirimin** setelah menyisipkan modul beranda, obrolan, dan setelan akun:
+
+```text
+kirimin/
+├── backend/                   # Arsitektur Skema Masa Depan (Untuk Skalabilitas)
+│   ├── config/db.js           # Konfigurasi koneksi basis data lokal
+│   ├── models/
+│   │   ├── Paket.js           # Skema JSON Dokumen logistik & status paket
+│   │   └── RuteDriver.js      # Skema JSON Array koordinat rute berantai driver
+│   └── server.js              # Rencana API server di masa depan
+│
+└── frontend/                  # Pusat Pengembangan Prototipe Utama (Vite Sandbox)
+    ├── public/
+    └── src/
+        ├── styles/
+        │   ├── fonts.css      # Import Google Fonts (Inter & Material Icons)
+        │   └── theme.css      # Injeksi token warna figma (--font-sans, --primary-blue)
+        ├── lib/
+        │   ├── matching.ts    # Komputasi in-memory rumus Haversine & urutan waypoint
+        │   ├── storage.ts     # Driver helper penulisan & pembacaan window.storage event
+        │   └── mockData.ts    # Seed data data pengemudi virtual untuk simulasi matching
+        └── app/
+            ├── App.tsx        # File Utama: Deteksi query URL, state router, & top-level state
+            ├── components/
+            │   ├── MapPlaceholder.tsx  # Mock komponen peta dengan gradasi figma & pencari lokasi
+            │   ├── BottomNav.tsx       # Menu navigasi bawah (Beranda | Aktivitas | Chat | Setelan)
+            │   ├── StepHeader.tsx      # Indikator progres 3 tahap (Detail → Rute → Pesan)
+            │   ├── PackageCard.tsx     # Kartu reusable informasi paket pengirim
+            │   └── BuktiKameraMock.tsx # Kamera simulator untuk ambil foto bukti drop/pick-up
+            └── screens/
+                ├── Homepage.tsx        # BARU: Home screen utama hub akses Kirim & Angkut
+                ├── bersama/
+                │   ├── LiveChat.tsx     # Layar penuh daftar obrolan aktif real-time pengirim & driver
+                │   └── SetelanAkun.tsx  # BARU: Pengaturan profil, alamat preset, & reset sandbox data
+                ├── pengirim/
+                │   ├── KirimDetail.tsx # Input data paket & foto (Simpan ke preset local)
+                │   ├── KirimRute.tsx   # Input koordinat pick-drop & skema metode COD/Titip
+                │   ├── KirimPesan.tsx  # List sorting driver searah & finalisasi harga fleksibel
+                │   ├── KirimMencariDriver.tsx # Animasi full blue screen loader (2s auto-accept)
+                │   ├── KirimDash.tsx   # Pelacakan status 3-state bar aktif
+                │   └── KirimRiwayat.tsx # List arsip paket masa lalu untuk duplikasi pesanan cepat
+                └── driver/
+                    ├── Angkut.tsx      # Multi-stop rute builder via array & preferensi bagasi
+                    ├── AngkutDash.tsx  # Peta utama, overlay ShortView rute berantai, & auto-reroute
+                    ├── AngkutProses.tsx # Layar penyerahan tugas berantai & konfirmasi foto bukti
+                    └── AngkutRiwayat.tsx # Catatan akumulasi pendapatan "Uang Bensin" driver
+
+## IMPORTANT DISCLAIMER (Pernyataan Batasan Proyek)
+
+> ⚠️ **CATATAN PENTING & BATASAN HUKUM PROTOTIPE:**
+> 1. **STATUS PROYEK:** Aplikasi ini merupakan **Prototipe Cepat (Fast-PoC / Proof of Concept)** dan **TIDAK** ditujukan untuk penggunaan produksi massal (*production-ready*).
+> 2. **ISOLASI LINGKUNGAN LOKAL (LOCAL ONLY):** Aplikasi ini berjalan 100% di dalam memori lokal satu perangkat laptop (*Client-Side Sandbox*). Tidak ada data nyata yang dikirimkan ke jaringan internet, pelayan luar, ataupun layanan cloud publik.
+> 3. **SIMULASI GEOSPASIAL:** Pemetaan menggunakan Leaflet.js menggunakan data tiruan (*mock coordinates*). Aplikasi tidak melakukan pelacakan GPS fisik secara *real-time* dari perangkat keras seluler asli di luar browser laptop pengujian.
+> 4. **SIMULASI PEMBAYARAN:** Halaman pembayaran (QRIS / E-Money) yang disajikan bersifat **100% tiruan (MOCKUP)**. Sistem tidak terhubung dengan gerbang pembayaran resmi (*Payment Gateway*) mana pun. Tidak ada transaksi keuangan riil atau pemotongan saldo uang elektronik yang terjadi.
+> 5. **TANPA AUTENTIKASI FORMAL:** Tidak ada enkripsi kata sandi, manajemen sesi JWT, atau perlindungan data pengguna (*GDPR/UU PDP*) karena semua data akun dibuat secara acak di memori lokal demi kebutuhan demonstrasi kelayakan alur kerja.
+

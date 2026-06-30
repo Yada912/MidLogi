@@ -1,0 +1,55 @@
+@import './styles/fonts.css';
+@import './styles/theme.css';
+@import 'leaflet/dist/leaflet.css';
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: #0f172a;
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Animations */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+.animate-pulse-slow {
+  animation: pulse-slow 2.5s ease-in-out infinite;
+}
+
+@keyframes slide-up {
+  from { transform: translateY(12px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* Leaflet overrides inside phone container */
+.leaflet-container {
+  font-family: var(--font-sans);
+}
+.leaflet-control-attribution {
+  font-size: 9px !important;
+  background: rgba(255,255,255,0.7) !important;
+  padding: 2px 5px !important;
+  border-radius: 4px !important;
+}
+.leaflet-control-zoom a {
+  border-radius: 8px !important;
+}
