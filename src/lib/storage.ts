@@ -64,10 +64,12 @@ export interface UserProfile {
   email: string;
   phone: string;
   /** Primary role preference – can be switched in-app */
-  role: 'pengirim' | 'driver';
+  role: 'pengirim' | 'driver' | 'admin';
   vehicle?: Vehicle;
   avatar?: string;
   createdAt: string;
+  location?: Coordinate;
+  locationName?: string;
 }
 
 // ─── Keys ────────────────────────────────────────────────────────────────────
@@ -76,6 +78,7 @@ const KEYS = {
   DRIVER_ROUTE: 'kirimin_driver_route',
   MESSAGES:     'kirimin_messages',
   USER_PROFILE: 'kirimin_user_profile',
+  USERS:        'kirimin_users',
 };
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -99,6 +102,84 @@ export function initializeStorage() {
   }
   if (!localStorage.getItem(KEYS.MESSAGES)) {
     localStorage.setItem(KEYS.MESSAGES, JSON.stringify([]));
+  }
+  if (!localStorage.getItem(KEYS.USERS)) {
+    const defaultUsers: UserProfile[] = [
+      {
+        id: 'admin_user',
+        name: 'Super Admin',
+        email: 'admin@kirimin.com',
+        phone: '0812-0000-0000',
+        role: 'admin',
+        avatar: 'https://ui-avatars.com/api/?name=Super+Admin&background=f59e0b&color=fff&size=128',
+        createdAt: new Date().toISOString(),
+        location: { lat: -6.2297, lng: 106.8294 },
+        locationName: 'Kuningan (Kantor)',
+      },
+      {
+        id: 'vd_1',
+        name: 'Budi Santoso',
+        email: 'budi@email.com',
+        phone: '0812-3456-7890',
+        role: 'driver',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&fit=crop&q=80',
+        createdAt: new Date().toISOString(),
+        location: { lat: -6.2442, lng: 106.7973 },
+        locationName: 'Rumah (Kebayoran Baru)',
+        vehicle: {
+          type: 'Mobil',
+          plate: 'B 1234 CDG',
+          maxPackageSize: 'L',
+          color: 'Hitam',
+        },
+      },
+      {
+        id: 'vd_2',
+        name: 'Andi Wijaya',
+        email: 'andi@email.com',
+        phone: '0857-9988-7766',
+        role: 'driver',
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&fit=crop&q=80',
+        createdAt: new Date().toISOString(),
+        location: { lat: -6.2297, lng: 106.7973 },
+        locationName: 'Sudirman',
+        vehicle: {
+          type: 'Motor',
+          plate: 'B 9876 XYZ',
+          maxPackageSize: 'M',
+          color: 'Hitam',
+        },
+      },
+      {
+        id: 'vd_3',
+        name: 'Rian Hidayat',
+        email: 'rian@email.com',
+        phone: '0813-1122-3344',
+        role: 'driver',
+        avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&fit=crop&q=80',
+        createdAt: new Date().toISOString(),
+        location: { lat: -6.1781, lng: 106.6300 },
+        locationName: 'Tangerang Kota',
+        vehicle: {
+          type: 'Pickup',
+          plate: 'B 4567 KLA',
+          maxPackageSize: 'XL',
+          color: 'Putih',
+        },
+      },
+      {
+        id: 'user_sender_1',
+        name: 'Dewi Lestari',
+        email: 'dewi@email.com',
+        phone: '0812-9988-7766',
+        role: 'pengirim',
+        avatar: 'https://ui-avatars.com/api/?name=Dewi+Lestari&background=ec4899&color=fff&size=128',
+        createdAt: new Date().toISOString(),
+        location: { lat: -6.1951, lng: 106.8231 },
+        locationName: 'Mall Grand Indonesia',
+      }
+    ];
+    localStorage.setItem(KEYS.USERS, JSON.stringify(defaultUsers));
   }
 }
 
@@ -124,6 +205,12 @@ export function getChatMessages(): ChatMessage[] {
   return data ? JSON.parse(data) : [];
 }
 
+export function getUsers(): UserProfile[] {
+  initializeStorage();
+  const data = localStorage.getItem(KEYS.USERS);
+  return data ? JSON.parse(data) : [];
+}
+
 export function getUserProfile(): UserProfile | null {
   const data = localStorage.getItem(KEYS.USER_PROFILE);
   return data ? JSON.parse(data) : null;
@@ -132,6 +219,11 @@ export function getUserProfile(): UserProfile | null {
 // ─── Setters ─────────────────────────────────────────────────────────────────
 export function savePackages(packages: Package[]) {
   localStorage.setItem(KEYS.PACKETS, JSON.stringify(packages));
+  window.dispatchEvent(new Event('storage_update'));
+}
+
+export function saveUsers(users: UserProfile[]) {
+  localStorage.setItem(KEYS.USERS, JSON.stringify(users));
   window.dispatchEvent(new Event('storage_update'));
 }
 
@@ -160,6 +252,7 @@ export function clearSandboxData() {
   localStorage.removeItem(KEYS.PACKETS);
   localStorage.removeItem(KEYS.DRIVER_ROUTE);
   localStorage.removeItem(KEYS.MESSAGES);
+  localStorage.removeItem(KEYS.USERS);
   initializeStorage();
   window.dispatchEvent(new Event('storage_update'));
 }
@@ -168,7 +261,8 @@ export function clearSandboxData() {
 export function subscribeToStorage(callback: () => void) {
   const handleStorage = (e: StorageEvent) => {
     if (e.key === KEYS.PACKETS || e.key === KEYS.DRIVER_ROUTE ||
-        e.key === KEYS.MESSAGES || e.key === KEYS.USER_PROFILE || !e.key) {
+        e.key === KEYS.MESSAGES || e.key === KEYS.USER_PROFILE ||
+        e.key === KEYS.USERS || !e.key) {
       callback();
     }
   };

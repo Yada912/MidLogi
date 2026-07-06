@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { getUserProfile, type UserProfile } from '../../../lib/storage';
+import { saveUserProfile, getUsers, type UserProfile } from '../../../lib/storage';
 
 interface AuthLoginProps {
   onComplete: (profile: UserProfile) => void;
@@ -12,13 +12,13 @@ export const AuthLogin: React.FC<AuthLoginProps> = ({ onComplete, onSignup }) =>
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const saved = getUserProfile();
-    if (saved && saved.email.toLowerCase() === email.trim().toLowerCase()) {
-      onComplete(saved);
-    } else if (!saved) {
-      setError('Belum ada akun tersimpan. Silakan daftar terlebih dahulu.');
+    const users = getUsers();
+    const matched = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (matched) {
+      saveUserProfile(matched);
+      onComplete(matched);
     } else {
-      setError('Email tidak cocok. Pastikan email yang kamu daftar sama.');
+      setError('Email tidak terdaftar. Silakan daftar terlebih dahulu.');
     }
   };
 

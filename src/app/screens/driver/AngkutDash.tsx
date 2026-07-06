@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { MapPlaceholder } from '../../components/MapPlaceholder';
-import { getDriverRoute, saveDriverRoute, getPackages, savePackages, type Package } from '../../../lib/storage';
+import {
+  getDriverRoute, saveDriverRoute, getPackages, savePackages,
+  type Package, type UserProfile
+} from '../../../lib/storage';
 import { findBestDetour } from '../../../lib/matching';
 
 interface AngkutDashProps {
   navigate: (screen: string) => void;
   packages: Package[];
+  userProfile: UserProfile;
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -27,9 +31,13 @@ const SIZE_COLORS: Record<string, string> = {
   XS: '#10b981', S: '#3b82f6', M: '#f59e0b', L: '#d97706', XL: '#ef4444',
 };
 
-export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) => {
+export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages, userProfile }) => {
   const [route, setRoute] = useState(getDriverRoute());
   const [matchingPackages, setMatchingPackages] = useState<any[]>([]);
+
+  // UI States
+  const [mapExpanded, setMapExpanded] = useState(true);
+  const [hoveredMatch, setHoveredMatch] = useState<any | null>(null);
 
   useEffect(() => {
     const currentRoute = getDriverRoute();
@@ -45,7 +53,8 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
       const pkgIdx = sizeHierarchy.indexOf(pkg.weightSize);
       if (pkgIdx > driverMaxIdx) return;
 
-      if (pkg.driverId === 'driver_self') {
+      // Filter matched items
+      if (pkg.driverId === userProfile.id) {
         const m = findBestDetour(currentRoute.waypoints, pkg.pickupCoords, pkg.dropoffCoords);
         matches.push({ package: pkg, match: m, accepted: true });
         return;
@@ -57,12 +66,12 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
     });
 
     setMatchingPackages(matches);
-  }, [packages]);
+  }, [packages, userProfile.id]);
 
   const handleAcceptPackage = (pkgId: string) => {
     const all = getPackages();
     const currentRoute = getDriverRoute();
-    const acceptedCount = all.filter(p => p.driverId === 'driver_self' && p.status !== 'Telah Tiba' && p.status !== 'Dibatalkan').length;
+    const acceptedCount = all.filter(p => p.driverId === userProfile.id && p.status !== 'Telah Tiba' && p.status !== 'Dibatalkan').length;
     if (acceptedCount >= currentRoute.maxPackets) {
       alert(`Bagasi penuh! Maks ${currentRoute.maxPackets} paket.`);
       return;
@@ -70,12 +79,12 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
     const updated = all.map(p => p.id === pkgId ? {
       ...p,
       status: 'Menunggu Pick-up' as const,
-      driverId: 'driver_self',
-      driverName: 'Andi Wijaya (Anda)',
-      driverPhone: '0857-9988-7766',
-      driverAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&fit=crop&q=80',
-      driverVehicle: 'Honda Vario (Motor)',
-      driverPlate: 'B 9876 XYZ',
+      driverId: userProfile.id,
+      driverName: userProfile.name,
+      driverPhone: userProfile.phone,
+      driverAvatar: userProfile.avatar ?? null,
+      driverVehicle: userProfile.vehicle ? `${userProfile.vehicle.type} (${userProfile.vehicle.color})` : 'Motor',
+      driverPlate: userProfile.vehicle?.plate ?? 'B 0000 XYZ',
     } : p);
     savePackages(updated);
   };
@@ -96,12 +105,20 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
     setRoute(updatedRoute);
   };
 
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (target.scrollTop > 15 && mapExpanded) {
+      setMapExpanded(false);
+    } else if (target.scrollTop <= 0 && !mapExpanded) {
+      setMapExpanded(true);
+    }
+  };
+
   const myAcceptedPackages = matchingPackages.filter(m => m.accepted);
   const availableMatches   = matchingPackages.filter(m => !m.accepted);
   const directMatches  = availableMatches.filter(m => m.match.detourDistance <= 0.8);
   const detourMatches  = availableMatches.filter(m => m.match.detourDistance > 0.8);
 
-  // Compact package card for 2-column grid
   const PackageChip = ({ item, showAccept }: { item: any; showAccept?: boolean }) => {
     const pkg: Package = item.package;
     const score = item.match.score;
@@ -109,13 +126,21 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
     const isDirect = detourKm <= 0.8;
 
     return (
-      <div style={{
-        padding: '12px', borderRadius: '16px',
-        border: `1.5px solid ${showAccept && !isDirect ? '#fde68a' : '#e2e8f0'}`,
-        background: item.accepted ? '#f0fdf4' : '#ffffff',
-        display: 'flex', flexDirection: 'column', gap: '8px',
-        position: 'relative',
-      }}>
+      <div
+        onMouseEnter={() => setHoveredMatch(item)}
+        onMouseLeave={() => setHoveredMatch(null)}
+        onClick={() => setHoveredMatch(hoveredMatch?.package?.id === pkg.id ? null : item)}
+        style={{
+          padding: '12px', borderRadius: '16px',
+          border: `1.5px solid ${hoveredMatch?.package?.id === pkg.id ? '#3b82f6' : (showAccept && !isDirect ? '#fde68a' : '#e2e8f0')}`,
+          background: item.accepted ? '#f0fdf4' : (hoveredMatch?.package?.id === pkg.id ? '#f0f9ff' : '#ffffff'),
+          display: 'flex', flexDirection: 'column', gap: '8px',
+          position: 'relative',
+          cursor: 'pointer',
+          transition: 'all 0.25s ease',
+          boxShadow: hoveredMatch?.package?.id === pkg.id ? '0 4px 15px rgba(59,130,246,0.15)' : 'none',
+        }}
+      >
         {/* Score badge */}
         <div style={{
           position: 'absolute', top: '8px', right: '8px',
@@ -167,14 +192,17 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
             Rp {(pkg.price + (pkg.detourFee || 0)).toLocaleString('id-ID')}
           </span>
           {!isDirect && (
-            <span style={{ fontSize: '10px', color: '#92400e' }}>+{detourKm}km</span>
+            <span style={{ fontSize: '10px', color: '#92400e', fontWeight: 600 }}>+{detourKm}km</span>
           )}
         </div>
 
         {/* Accept button */}
         {showAccept && (
           <button
-            onClick={() => handleAcceptPackage(pkg.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleAcceptPackage(pkg.id);
+            }}
             style={{
               width: '100%', padding: '7px', borderRadius: '10px', border: 'none',
               background: 'linear-gradient(135deg, #8eadf0, #2091e7)',
@@ -185,10 +213,13 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
           </button>
         )}
 
-        {/* Auto-reroute button (for accepted packages not yet in route) */}
+        {/* Auto-reroute button */}
         {item.accepted && !route.waypoints.some(w => Math.abs(w.lat - pkg.pickupCoords.lat) < 0.001) && (
           <button
-            onClick={() => handleAutoReroute(pkg, item.match.insertIndexPickup, item.match.insertIndexDropoff)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleAutoReroute(pkg, item.match.insertIndexPickup, item.match.insertIndexDropoff);
+            }}
             style={{
               width: '100%', padding: '6px', borderRadius: '10px',
               border: '1.5px solid #bfdbfe', background: '#eff6ff',
@@ -205,27 +236,38 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
   };
 
   return (
-    <div className="screen-content" style={{ padding: 0, gap: 0 }}>
-      {/* ── Tall Map ── */}
-      <div style={{ position: 'relative', height: '300px', width: '100%' }}>
+    <div className="screen-content" style={{ padding: 0, gap: 0, overflow: 'hidden', height: '100dvh' }}>
+      {/* ── Collapsible Map Container ── */}
+      <div style={{
+        position: 'relative',
+        height: mapExpanded ? 'calc(55dvh - 68px)' : '140px',
+        width: '100%',
+        transition: 'height 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+        flexShrink: 0,
+      }}>
         <MapPlaceholder
           points={route.waypoints}
           labels={route.waypoints.map((w, i) => `${i + 1}. ${w.name}`)}
+          pickupPoint={hoveredMatch?.package?.pickupCoords}
+          dropoffPoint={hoveredMatch?.package?.dropoffCoords}
           height="100%"
           interactive={true}
         />
 
         {/* Floating route summary */}
         <div style={{
-          position: 'absolute', top: '12px', left: '12px', right: '12px',
+          position: 'absolute', top: '12px', left: '12px', right: '60px',
           background: 'rgba(255,255,255,0.96)', backdropFilter: 'blur(8px)',
           borderRadius: '14px', padding: '10px 14px',
-          boxShadow: '0 4px 15px rgba(0,0,0,0.1)', zIndex: 10,
+          boxShadow: '0 4px 15px rgba(0,0,0,0.08)', zIndex: 10,
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          opacity: mapExpanded ? 1 : 0,
+          pointerEvents: mapExpanded ? 'auto' : 'none',
+          transition: 'opacity 0.2s',
         }}>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <p style={{ fontSize: '9px', fontWeight: 600, color: '#64748b', margin: 0, textTransform: 'uppercase' }}>Rute Aktif</p>
-            <p style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', margin: 0 }}>
+            <p style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b', margin: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
               {route.waypoints[0]?.name.split(' ')[0]} → {route.waypoints[route.waypoints.length - 1]?.name.split(' ')[0]}
             </p>
           </div>
@@ -235,6 +277,7 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
               padding: '6px 12px', borderRadius: '10px',
               border: '1.5px solid #e2e8f0', background: '#f1f5f9',
               fontSize: '11px', fontWeight: 700, cursor: 'pointer', color: '#475569',
+              flexShrink: 0,
             }}
           >
             Ubah
@@ -255,39 +298,69 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
       </div>
 
       {/* ── Content Slide-up ── */}
-      <div style={{
-        flex: 1,
-        background: '#f4f7fc',
-        borderTopLeftRadius: '28px',
-        borderTopRightRadius: '28px',
-        marginTop: '-20px',
-        zIndex: 20,
-        padding: '20px 20px 90px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '18px',
-        overflowY: 'auto',
-      }}>
-        {/* Drag handle */}
-        <div style={{ width: '36px', height: '4px', borderRadius: '2px', background: '#cbd5e1', margin: '-4px auto 0' }} />
+      <div
+        onScroll={handleScroll}
+        style={{
+          flex: 1,
+          background: '#f4f7fc',
+          borderTopLeftRadius: '28px',
+          borderTopRightRadius: '28px',
+          marginTop: '-20px',
+          zIndex: 20,
+          padding: '20px 20px 90px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '18px',
+          overflowY: 'auto',
+          boxShadow: '0 -8px 30px rgba(0,0,0,0.08)',
+        }}
+      >
+        {/* Drag handle (Click to toggle expansion manually) */}
+        <div
+          onClick={() => setMapExpanded(!mapExpanded)}
+          style={{ width: '40px', height: '5px', borderRadius: '3px', background: '#cbd5e1', margin: '-4px auto 0', cursor: 'pointer' }}
+        />
 
         {/* Route list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 700, color: '#475569' }}>
+          <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             🗺️ Rute Perjalanan ({route.waypoints.length} titik)
           </span>
-          {route.waypoints.map((wp, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div className="waypoint-badge" style={{ flexShrink: 0 }}>{i + 1}</div>
-              <span style={{ fontSize: '13px', color: '#334155', fontWeight: 500 }}>{wp.name}</span>
-            </div>
-          ))}
+          <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '4px', scrollbarWidth: 'none' }}>
+            {route.waypoints.map((wp, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', padding: '6px 12px', borderRadius: '12px', border: '1px solid #e2e8f0', flexShrink: 0 }}>
+                <div className="waypoint-badge" style={{ flexShrink: 0, width: '18px', height: '18px', fontSize: '10px' }}>{i + 1}</div>
+                <span style={{ fontSize: '11px', color: '#334155', fontWeight: 600 }}>{wp.name.split(' ')[0]}</span>
+              </div>
+            ))}
+          </div>
         </div>
+
+        {/* Highlight details when match is selected/hovered */}
+        {hoveredMatch && (
+          <div style={{
+            background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+            border: '1px solid #bfdbfe', borderRadius: '16px', padding: '12px 14px',
+            display: 'flex', flexDirection: 'column', gap: '6px',
+            animation: 'fadeIn 0.2s ease-out',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 800, color: '#1e40af' }}>🔎 Detail Simpangan Detour</span>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#1e40af', background: '#fff', padding: '2px 8px', borderRadius: '8px' }}>
+                Detour: {hoveredMatch.match.detourDistance} km
+              </span>
+            </div>
+            <p style={{ fontSize: '11px', color: '#3b82f6', margin: 0, lineHeight: 1.4 }}>
+              <strong>Jemput:</strong> {hoveredMatch.package.pickupAddress} <br />
+              <strong>Antar:</strong> {hoveredMatch.package.dropoffAddress}
+            </p>
+          </div>
+        )}
 
         {/* Accepted packages */}
         {myAcceptedPackages.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 700, color: '#065f46' }}>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: '#065f46', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               📦 Paket Diangkut ({myAcceptedPackages.length})
             </span>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -299,10 +372,10 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
             <button
               onClick={() => navigate('AngkutProses')}
               className="btn-primary"
-              style={{ background: 'linear-gradient(135deg, #34d399, #059669)', boxShadow: '0 4px 14px rgba(5,150,105,0.3)' }}
+              style={{ background: 'linear-gradient(135deg, #34d399, #059669)', boxShadow: '0 4px 14px rgba(5,150,105,0.3)', padding: '12px', fontSize: '13px' }}
             >
-              <span className="material-icons">navigation</span>
-              Mulai Pengantaran ({myAcceptedPackages.length} Paket)
+              <span className="material-icons" style={{ fontSize: '16px' }}>navigation</span>
+              Mulai Navigasi ({myAcceptedPackages.length} Paket)
             </button>
           </div>
         )}
@@ -310,8 +383,8 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
         {/* Direct matches */}
         {directMatches.length > 0 && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#1e293b', letterSpacing: '0.5px' }}>
                 ✅ Rute Langsung ({directMatches.length})
               </span>
               <span style={{ fontSize: '10px', color: '#94a3b8' }}>Tanpa simpangan</span>
@@ -327,8 +400,8 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
         {/* Detour matches */}
         {detourMatches.length > 0 && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#1e293b', letterSpacing: '0.5px' }}>
                 🔀 Rute dengan Simpangan ({detourMatches.length})
               </span>
               <span style={{ fontSize: '10px', color: '#94a3b8' }}>Ada biaya extra</span>
@@ -347,10 +420,10 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
             background: '#ffffff', borderRadius: '20px', border: '1px dashed #cbd5e1',
           }}>
             <span className="material-icons" style={{ fontSize: '38px', color: '#cbd5e1' }}>explore_off</span>
-            <p style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', marginTop: '8px' }}>
+            <p style={{ fontSize: '13px', fontWeight: 600, color: '#64748b', marginTop: '8px', margin: 0 }}>
               Belum Ada Paket Searah
             </p>
-            <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
+            <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', margin: 0 }}>
               Buka tab Pengirim untuk memesan paket yang melintas rute Anda.
             </p>
           </div>
@@ -360,9 +433,9 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages }) =>
         <button
           onClick={() => navigate('Angkut')}
           className="btn-secondary"
-          style={{ background: '#fef2f2', borderColor: '#fca5a5', color: '#dc2626' }}
+          style={{ background: '#fef2f2', borderColor: '#fca5a5', color: '#dc2626', padding: '10px', fontSize: '13px' }}
         >
-          <span className="material-icons">stop_circle</span>
+          <span className="material-icons" style={{ fontSize: '16px' }}>stop_circle</span>
           Berhenti Menerima Paket
         </button>
       </div>

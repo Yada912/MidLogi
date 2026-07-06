@@ -6,7 +6,7 @@ interface SetelanAkunProps {
   role: string;
   userProfile: UserProfile;
   onLogout: () => void;
-  onSwitchRole: (role: 'pengirim' | 'driver') => void;
+  onSwitchRole: (role: 'pengirim' | 'driver' | 'admin') => void;
 }
 
 const VEHICLE_ICONS: Record<string, string> = {
@@ -118,23 +118,23 @@ export const SetelanAkun: React.FC<SetelanAkunProps> = ({
 
         {/* Role switcher */}
         <div style={{ display: 'flex', gap: '8px' }}>
-          {(['pengirim', 'driver'] as const).map(r => (
+          {(['pengirim', 'driver', 'admin'] as const).map(r => (
             <button
               key={r}
               onClick={() => onSwitchRole(r)}
               style={{
                 flex: 1, padding: '9px', borderRadius: '12px', border: '1.5px solid',
-                borderColor: role === r ? (r === 'driver' ? '#10b981' : '#2091e7') : '#e2e8f0',
-                background: role === r ? (r === 'driver' ? '#f0fdf4' : '#e8f4ff') : '#fff',
-                color: role === r ? (r === 'driver' ? '#065f46' : '#1e40af') : '#64748b',
+                borderColor: role === r ? (r === 'driver' ? '#10b981' : r === 'admin' ? '#f59e0b' : '#2091e7') : '#e2e8f0',
+                background: role === r ? (r === 'driver' ? '#f0fdf4' : r === 'admin' ? '#fef3c7' : '#e8f4ff') : '#fff',
+                color: role === r ? (r === 'driver' ? '#065f46' : r === 'admin' ? '#b45309' : '#1e40af') : '#64748b',
                 fontWeight: 700, fontSize: '12px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
               }}
             >
               <span className="material-icons" style={{ fontSize: '16px' }}>
-                {r === 'driver' ? 'sports_motorsports' : 'person'}
+                {r === 'driver' ? 'sports_motorsports' : r === 'admin' ? 'admin_panel_settings' : 'person'}
               </span>
-              {r === 'driver' ? 'Driver' : 'Pengirim'}
+              {r === 'driver' ? 'Driver' : r === 'admin' ? 'Admin' : 'Pengirim'}
             </button>
           ))}
         </div>

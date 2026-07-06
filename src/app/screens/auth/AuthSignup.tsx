@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { saveUserProfile, type UserProfile, type Vehicle } from '../../../lib/storage';
+import { saveUserProfile, getUsers, saveUsers, type UserProfile, type Vehicle } from '../../../lib/storage';
 
 interface AuthSignupProps {
   onComplete: (profile: UserProfile) => void;
@@ -62,8 +62,12 @@ export const AuthSignup: React.FC<AuthSignupProps> = ({ onComplete, onLogin }) =
       vehicle,
       avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name.trim())}&background=2091e7&color=fff&size=128`,
       createdAt: new Date().toISOString(),
+      location: { lat: -6.2297, lng: 106.8294 }, // default coordinates
+      locationName: 'Jakarta Pusat',
     };
 
+    const currentUsers = getUsers();
+    saveUsers([...currentUsers.filter(u => u.email.toLowerCase() !== profile.email.toLowerCase()), profile]);
     saveUserProfile(profile);
     onComplete(profile);
   };

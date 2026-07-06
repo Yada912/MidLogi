@@ -4,7 +4,7 @@ interface BottomNavProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   unreadChatCount?: number;
-  role?: 'pengirim' | 'driver';
+  role?: 'pengirim' | 'driver' | 'admin';
 }
 
 const SENDER_TABS = [
@@ -23,13 +23,20 @@ const DRIVER_TABS = [
   { id: 'setelan',   label: 'Profil',    icon: 'person'      },
 ];
 
+const ADMIN_TABS = [
+  { id: 'beranda',   label: 'Dashboard', icon: 'admin_panel_settings' },
+  { id: 'users',     label: 'User',      icon: 'people' },
+  { id: 'orders',    label: 'Order',     icon: 'local_shipping' },
+  { id: 'setelan',   label: 'Profil',    icon: 'person' },
+];
+
 export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
   onTabChange,
   unreadChatCount = 0,
   role = 'pengirim',
 }) => {
-  const tabs = role === 'driver' ? DRIVER_TABS : SENDER_TABS;
+  const tabs = role === 'admin' ? ADMIN_TABS : role === 'driver' ? DRIVER_TABS : SENDER_TABS;
 
   return (
     <div style={{

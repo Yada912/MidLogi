@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   getPackages, getDriverRoute, getChatMessages,
   getUserProfile, saveUserProfile, clearUserProfile,
-  subscribeToStorage, initializeStorage,
+  subscribeToStorage, initializeStorage, getUsers, savePackages,
   type Package, type DriverRoute, type ChatMessage, type UserProfile,
 } from './lib/storage';
 
@@ -32,6 +32,9 @@ import { AngkutDash }   from './app/screens/driver/AngkutDash';
 import { AngkutProses } from './app/screens/driver/AngkutProses';
 import { AngkutRiwayat } from './app/screens/driver/AngkutRiwayat';
 
+// Admin Panel
+import { AdminPanel } from './app/screens/admin/AdminPanel';
+
 const SIDEBAR_TABS = {
   pengirim: [
     { id: 'beranda',   label: 'Beranda',   icon: 'home'        },
@@ -46,6 +49,12 @@ const SIDEBAR_TABS = {
     { id: 'riwayat',   label: 'Riwayat',   icon: 'history'      },
     { id: 'chat',      label: 'Chat',       icon: 'chat_bubble'  },
     { id: 'setelan',   label: 'Profil',     icon: 'person'       },
+  ],
+  admin: [
+    { id: 'beranda',   label: 'Dashboard',  icon: 'admin_panel_settings' },
+    { id: 'users',     label: 'Kelola User', icon: 'people' },
+    { id: 'orders',    label: 'Kelola Order',icon: 'local_shipping' },
+    { id: 'setelan',   label: 'Profil',      icon: 'person' },
   ],
 };
 
@@ -70,19 +79,75 @@ export default function App() {
     deliveryMethod: 'Bertemu Langsung', instruction: '', price: 0,
   });
 
+  // Check URL role override and load matching user profile on mount
+  useEffect(() => {
+    initializeStorage();
+    const allUsers = getUsers();
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlRole = urlParams.get('role');
+
+    if (urlRole === 'pengirim' || urlRole === 'driver' || urlRole === 'admin') {
+      const matchedUser = allUsers.find(u => u.role === urlRole);
+      if (matchedUser) {
+        setUserProfile(matchedUser);
+        // Note: We don't save to storage to let other tabs preserve their roles
+      }
+    }
+  }, []);
+
+  // Sync state with local storage updates
   useEffect(() => {
     initializeStorage();
     setPackages(getPackages());
     setDriverRoute(getDriverRoute());
     setMessages(getChatMessages());
+
     const unsub = subscribeToStorage(() => {
       setPackages(getPackages());
       setDriverRoute(getDriverRoute());
       setMessages(getChatMessages());
-      const u = getUserProfile();
-      if (u) setUserProfile(u);
+
+      // Only sync active profile if not overridden by URL parameter
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlRole = urlParams.get('role');
+      if (!urlRole) {
+        const u = getUserProfile();
+        if (u) setUserProfile(u);
+      }
     });
     return unsub;
+  }, []);
+
+  // Background simulator: automatically assign random virtual drivers to packages with 'Mencari Driver' status
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const allPkgs = getPackages();
+      const pendingPkgs = allPkgs.filter(p => p.status === 'Mencari Driver');
+      if (pendingPkgs.length === 0) return;
+
+      // Grab first pending package
+      const targetPkg = pendingPkgs[0];
+
+      // Grab a virtual driver
+      const drivers = getUsers().filter(u => u.role === 'driver');
+      const randomDriver = drivers[Math.floor(Math.random() * drivers.length)] || drivers[0];
+
+      if (randomDriver) {
+        const updated = allPkgs.map(p => p.id === targetPkg.id ? {
+          ...p,
+          status: 'Menunggu Pick-up' as const,
+          driverId: randomDriver.id,
+          driverName: randomDriver.name,
+          driverPhone: randomDriver.phone,
+          driverAvatar: randomDriver.avatar ?? null,
+          driverVehicle: randomDriver.vehicle ? `${randomDriver.vehicle.type} (${randomDriver.vehicle.color})` : 'Motor',
+          driverPlate: randomDriver.vehicle?.plate ?? 'B 0000 XYZ',
+        } : p);
+        savePackages(updated);
+      }
+    }, 7000); // Run simulation every 7 seconds
+
+    return () => clearInterval(interval);
   }, []);
 
   const role = userProfile?.role ?? 'pengirim';
@@ -103,7 +168,7 @@ export default function App() {
     setSelectedTab('beranda');
   };
 
-  const switchRole = (newRole: 'pengirim' | 'driver') => {
+  const switchRole = (newRole: 'pengirim' | 'driver' | 'admin') => {
     if (!userProfile) return;
     const updated = { ...userProfile, role: newRole };
     saveUserProfile(updated);
@@ -137,7 +202,7 @@ export default function App() {
         case 'KirimDash':         return <KirimDash   navigate={navigateTo} packages={packages} setSelectedTab={setSelectedTab} />;
         case 'KirimRiwayat':      return <KirimRiwayat navigate={navigateTo} packages={packages} setDraftPackage={setDraftPackage} />;
         case 'Angkut':            return <Angkut      navigate={navigateTo} />;
-        case 'AngkutDash':        return <AngkutDash  navigate={navigateTo} packages={packages} />;
+        case 'AngkutDash':        return <AngkutDash  navigate={navigateTo} packages={packages} userProfile={userProfile} />;
         case 'AngkutProses':      return <AngkutProses navigate={navigateTo} packages={packages} />;
         case 'AngkutRiwayat':     return <AngkutRiwayat navigate={navigateTo} packages={packages} />;
         default: break;
@@ -146,11 +211,24 @@ export default function App() {
 
     switch (selectedTab) {
       case 'beranda':
+        if (role === 'admin') {
+          return <AdminPanel activeSection="dashboard" packages={packages} />;
+        }
+        return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} />;
+      case 'users':
+        if (role === 'admin') {
+          return <AdminPanel activeSection="users" packages={packages} />;
+        }
+        return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} />;
+      case 'orders':
+        if (role === 'admin') {
+          return <AdminPanel activeSection="orders" packages={packages} />;
+        }
         return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} />;
       case 'aktivitas':
         return role === 'pengirim'
           ? <KirimDash   navigate={navigateTo} packages={packages} setSelectedTab={setSelectedTab} />
-          : <AngkutDash  navigate={navigateTo} packages={packages} />;
+          : <AngkutDash  navigate={navigateTo} packages={packages} userProfile={userProfile} />;
       case 'riwayat':
         return role === 'pengirim'
           ? <KirimRiwayat  navigate={navigateTo} packages={packages} setDraftPackage={setDraftPackage} />
@@ -191,12 +269,12 @@ export default function App() {
         {/* Role badge */}
         <div style={{
           padding: '8px 12px', borderRadius: '10px',
-          background: role === 'pengirim' ? 'rgba(32,145,231,0.15)' : 'rgba(16,185,129,0.15)',
-          color: role === 'pengirim' ? '#60a5fa' : '#34d399',
+          background: role === 'pengirim' ? 'rgba(32,145,231,0.15)' : role === 'admin' ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.15)',
+          color: role === 'pengirim' ? '#60a5fa' : role === 'admin' ? '#fbbf24' : '#34d399',
           fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px',
           marginBottom: '8px',
         }}>
-          {role === 'pengirim' ? '📦 Mode Pengirim' : '🏍️ Mode Driver'}
+          {role === 'pengirim' ? '📦 Mode Pengirim' : role === 'admin' ? '⚡ Mode Admin' : '🏍️ Mode Driver'}
         </div>
 
         {/* Nav items */}
@@ -222,12 +300,12 @@ export default function App() {
         {/* Switch role */}
         <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <button
-            onClick={() => switchRole(role === 'pengirim' ? 'driver' : 'pengirim')}
+            onClick={() => switchRole(role === 'pengirim' ? 'driver' : role === 'driver' ? 'admin' : 'pengirim')}
             className="sidebar-nav-item"
             style={{ marginBottom: '4px' }}
           >
             <span className="material-icons" style={{ fontSize: '18px' }}>swap_horiz</span>
-            Ganti ke {role === 'pengirim' ? 'Driver' : 'Pengirim'}
+            Ganti Mode Peran
           </button>
           <button onClick={handleLogout} className="sidebar-nav-item" style={{ color: '#f87171' }}>
             <span className="material-icons" style={{ fontSize: '18px' }}>logout</span>
