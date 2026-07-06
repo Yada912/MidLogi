@@ -13,18 +13,18 @@ interface AngkutDashProps {
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
-  'Makanan':    'restaurant',
+  'Makanan': 'restaurant',
   'Elektronik': 'devices',
-  'Dokumen':    'description',
-  'Pakaian':    'checkroom',
-  'Lainnya':    'category',
+  'Dokumen': 'description',
+  'Pakaian': 'checkroom',
+  'Lainnya': 'category',
 };
 
 const HANDLING_ICONS: Record<string, string> = {
-  'Jaga dari Air':  'water_drop',
-  'Mudah Pecah':    'crisis_alert',
-  'Harus Tegak':    'vertical_align_top',
-  'Jaga Suhu':      'ac_unit',
+  'Jaga dari Air': 'water_drop',
+  'Mudah Pecah': 'crisis_alert',
+  'Harus Tegak': 'vertical_align_top',
+  'Jaga Suhu': 'ac_unit',
 };
 
 const SIZE_COLORS: Record<string, string> = {
@@ -115,9 +115,9 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages, user
   };
 
   const myAcceptedPackages = matchingPackages.filter(m => m.accepted);
-  const availableMatches   = matchingPackages.filter(m => !m.accepted);
-  const directMatches  = availableMatches.filter(m => m.match.detourDistance <= 0.8);
-  const detourMatches  = availableMatches.filter(m => m.match.detourDistance > 0.8);
+  const availableMatches = matchingPackages.filter(m => !m.accepted);
+  const directMatches = availableMatches.filter(m => m.match.detourDistance <= 0.8);
+  const detourMatches = availableMatches.filter(m => m.match.detourDistance > 0.8);
 
   const PackageChip = ({ item, showAccept }: { item: any; showAccept?: boolean }) => {
     const pkg: Package = item.package;
