@@ -14,6 +14,7 @@ export const AuthSignup: React.FC<AuthSignupProps> = ({ onComplete, onLogin }) =
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -26,7 +27,14 @@ export const AuthSignup: React.FC<AuthSignupProps> = ({ onComplete, onLogin }) =
       const profile = await api.signup(name.trim(), email.trim(), phone.trim(), password);
       onComplete(profile);
     } catch (err: any) {
-      setError(err.message || 'Pendaftaran gagal.');
+      const msg = err.message || 'Pendaftaran gagal.';
+      if (msg.startsWith('CONFIRM_EMAIL:')) {
+        setSuccess(msg.replace('CONFIRM_EMAIL:', ''));
+        setError('');
+      } else {
+        setError(msg);
+        setSuccess('');
+      }
     } finally {
       setLoading(false);
     }
@@ -74,6 +82,18 @@ export const AuthSignup: React.FC<AuthSignupProps> = ({ onComplete, onLogin }) =
             <input className="form-input" type="password" placeholder="Min. 6 karakter" value={password} onChange={e => setPassword(e.target.value)} minLength={6} required />
           </div>
 
+          {success && (
+            <div style={{
+              padding: '12px 14px', borderRadius: '12px',
+              background: '#f0fdf4', border: '1px solid #86efac',
+              color: '#15803d', fontSize: '13px', fontWeight: 600,
+              display: 'flex', alignItems: 'center', gap: '8px',
+            }}>
+              <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
+              {success}
+            </div>
+          )}
+
           {error && (
             <div style={{
               padding: '10px 14px', borderRadius: '12px',
@@ -84,9 +104,15 @@ export const AuthSignup: React.FC<AuthSignupProps> = ({ onComplete, onLogin }) =
             </div>
           )}
 
-          <button type="submit" className="btn-primary" disabled={loading} style={{ padding: '14px', fontSize: '14px', fontWeight: 700 }}>
-            {loading ? 'Mendaftarkan...' : 'Daftar Sekarang'} <span className="material-icons">arrow_forward</span>
-          </button>
+          {success ? (
+            <button type="button" onClick={onLogin} className="btn-primary" style={{ padding: '14px', fontSize: '14px', fontWeight: 700 }}>
+              Ke Halaman Login <span className="material-icons">login</span>
+            </button>
+          ) : (
+            <button type="submit" className="btn-primary" disabled={loading} style={{ padding: '14px', fontSize: '14px', fontWeight: 700 }}>
+              {loading ? 'Mendaftarkan...' : 'Daftar Sekarang'} <span className="material-icons">arrow_forward</span>
+            </button>
+          )}
         </form>
 
         <div style={{ textAlign: 'center', fontSize: '13px', color: '#64748b' }}>

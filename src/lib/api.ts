@@ -154,8 +154,35 @@ export async function login(email: string, password: string): Promise<UserProfil
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error || !data.user) throw new Error(error?.message ?? 'Login gagal');
 
-  const profile = await fetchProfile(data.user.id);
-  if (!profile) throw new Error('Profil tidak ditemukan. Hubungi admin.');
+  let profile = await fetchProfile(data.user.id);
+
+  // Auto-create profile if it doesn't exist yet (e.g. email confirmation flow)
+  if (!profile) {
+    const meta = data.user.user_metadata ?? {};
+    const name = meta.name || email.split('@')[0];
+    const phone = meta.phone || '';
+    const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=2091e7&color=fff&size=128`;
+
+    const { error: insertError } = await supabase.from('profiles').insert({
+      id:            data.user.id,
+      name,
+      phone,
+      role:          'pengirim',
+      avatar:        avatarUrl,
+      location_lat:  -6.2297,
+      location_lng:  106.8294,
+      location_name: 'Jakarta Pusat',
+    });
+
+    if (insertError) {
+      console.error('Auto-create profile failed:', insertError);
+      throw new Error('Gagal membuat profil otomatis. Hubungi admin.');
+    }
+
+    profile = await fetchProfile(data.user.id);
+    if (!profile) throw new Error('Profil tidak ditemukan setelah pembuatan. Hubungi admin.');
+  }
+
   return profile;
 }
 
@@ -166,12 +193,42 @@ export async function signup(
   phone: string,
   password: string,
 ): Promise<UserProfile> {
-  const { data, error } = await supabase.auth.signUp({ email, password });
-  if (error || !data.user) throw new Error(error?.message ?? 'Registrasi gagal');
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { name, phone },  // Store in auth metadata as backup
+    },
+  });
+
+  if (error) {
+    // Provide user-friendly messages for common errors
+    if (error.message.includes('rate limit')) {
+      throw new Error('Terlalu banyak percobaan. Coba lagi dalam beberapa menit.');
+    }
+    if (error.message.includes('already registered')) {
+      throw new Error('Email sudah terdaftar. Silakan login.');
+    }
+    throw new Error(error.message || 'Registrasi gagal');
+  }
+
+  if (!data.user) {
+    throw new Error('Registrasi gagal — tidak ada data user.');
+  }
+
+  // When email confirmation is ON, Supabase returns a user but identities
+  // may be empty (meaning a fake/duplicate signup) or session is null.
+  const needsConfirmation = !data.session;
+  const isDuplicate = data.user.identities && data.user.identities.length === 0;
+
+  if (isDuplicate) {
+    throw new Error('Email sudah terdaftar. Silakan login.');
+  }
 
   const userId = data.user.id;
   const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=2091e7&color=fff&size=128`;
 
+  // Try to insert the profile row
   const { error: insertError } = await supabase.from('profiles').insert({
     id:            userId,
     name,
@@ -182,7 +239,19 @@ export async function signup(
     location_lng:  106.8294,
     location_name: 'Jakarta Pusat',
   });
-  if (insertError) throw new Error(insertError.message);
+
+  // If profile insert fails due to RLS (user not confirmed yet), that's okay —
+  // we'll create the profile row on first login instead.
+  if (insertError && !needsConfirmation) {
+    throw new Error(insertError.message || 'Gagal membuat profil.');
+  }
+
+  if (needsConfirmation) {
+    // User needs to verify email first
+    throw new Error(
+      'CONFIRM_EMAIL:Akun berhasil dibuat! Cek email Anda untuk konfirmasi, lalu login.'
+    );
+  }
 
   return {
     id:           userId,
