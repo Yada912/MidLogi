@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  type ChatMessage, 
-  getChatMessages, 
-  saveChatMessages, 
-  type Package 
-} from '../../../lib/storage';
+import type { ChatMessage, Package } from '../../../lib/storage';
+import * as api from '../../../lib/api';
 
 interface LiveChatProps {
   role: 'pengirim' | 'driver';
@@ -69,40 +65,17 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
     }
   }, [selectedPacketId, messages]);
 
-  // Mark messages as read when opening chat
-  useEffect(() => {
-    if (selectedPacketId) {
-      const allMessages = getChatMessages();
-      let updated = false;
-      const newMessages = allMessages.map(m => {
-        if (m.packetId === selectedPacketId && m.senderRole !== role && !m.read) {
-          updated = true;
-          return { ...m, read: true };
-        }
-        return m;
-      });
-      if (updated) {
-        saveChatMessages(newMessages);
-      }
-    }
-  }, [selectedPacketId, messages, role]);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || !selectedPacketId) return;
-
-    const newMessage: ChatMessage = {
-      id: 'msg_' + Date.now(),
-      packetId: selectedPacketId,
-      senderRole: role,
-      text: inputText.trim(),
-      timestamp: new Date().toISOString(),
-      read: false
-    };
-
-    const allMessages = getChatMessages();
-    saveChatMessages([...allMessages, newMessage]);
+    const text = inputText.trim();
     setInputText('');
+    try {
+      await api.sendMessage(selectedPacketId, text, role);
+    } catch (err: any) {
+      alert('Gagal mengirim pesan: ' + err.message);
+    }
   };
 
   if (selectedPacketId && selectedSession) {

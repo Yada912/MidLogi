@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { saveUserProfile, getUsers, type UserProfile } from '../../../lib/storage';
+import * as api from '../../../lib/api';
+import type { UserProfile } from '../../../lib/storage';
 
 interface AuthLoginProps {
   onComplete: (profile: UserProfile) => void;
@@ -8,17 +9,23 @@ interface AuthLoginProps {
 
 export const AuthLogin: React.FC<AuthLoginProps> = ({ onComplete, onSignup }) => {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const users = getUsers();
-    const matched = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
-    if (matched) {
-      saveUserProfile(matched);
-      onComplete(matched);
-    } else {
-      setError('Email tidak terdaftar. Silakan daftar terlebih dahulu.');
+    if (!email.trim() || !password.trim()) return;
+
+    setLoading(true);
+    setError('');
+    try {
+      const profile = await api.login(email.trim(), password);
+      onComplete(profile);
+    } catch (err: any) {
+      setError(err.message || 'Email atau password salah.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -36,7 +43,7 @@ export const AuthLogin: React.FC<AuthLoginProps> = ({ onComplete, onSignup }) =>
             <span className="material-icons" style={{ fontSize: '32px', color: '#fff' }}>local_shipping</span>
           </div>
           <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b' }}>Masuk ke Kirimin</h1>
-          <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Gunakan email yang sudah didaftarkan</p>
+          <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Gunakan email & password Anda</p>
         </div>
 
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -52,6 +59,18 @@ export const AuthLogin: React.FC<AuthLoginProps> = ({ onComplete, onSignup }) =>
             />
           </div>
 
+          <div className="form-group">
+            <label className="form-label">Password</label>
+            <input
+              className="form-input"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={e => { setPassword(e.target.value); setError(''); }}
+              required
+            />
+          </div>
+
           {error && (
             <div style={{
               padding: '10px 14px', borderRadius: '12px',
@@ -62,9 +81,9 @@ export const AuthLogin: React.FC<AuthLoginProps> = ({ onComplete, onSignup }) =>
             </div>
           )}
 
-          <button type="submit" className="btn-primary">
-            <span className="material-icons">login</span>
-            Masuk
+          <button type="submit" className="btn-primary" disabled={loading}>
+            <span className="material-icons">{loading ? 'hourglass_top' : 'login'}</span>
+            {loading ? 'Memuat...' : 'Masuk'}
           </button>
         </form>
 
@@ -80,7 +99,7 @@ export const AuthLogin: React.FC<AuthLoginProps> = ({ onComplete, onSignup }) =>
           background: '#f8fafc', border: '1px dashed #cbd5e1',
           fontSize: '12px', color: '#64748b', lineHeight: 1.6,
         }}>
-          <strong>💡 Mode Sandbox:</strong> Buka 2 tab browser, daftar dengan email berbeda — satu sebagai Pengirim, satu sebagai Driver.
+          <strong>💡 Catatan Produksi:</strong> Akun Admin dikelola dan ditunjuk secara aman melalui database, tidak bisa diakses sembarang orang.
         </div>
       </div>
     </div>

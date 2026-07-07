@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { clearSandboxData, saveUserProfile, type UserProfile, type Vehicle } from '../../../lib/storage';
+import type { UserProfile, Vehicle } from '../../../lib/storage';
 import { LOCATION_PRESETS, type LocationPreset } from '../../../lib/mockData';
+import * as api from '../../../lib/api';
 
 interface SetelanAkunProps {
   role: string;
@@ -36,20 +37,29 @@ export const SetelanAkun: React.FC<SetelanAkunProps> = ({
   const [vType,  setVType]  = useState<Vehicle['type']>(userProfile.vehicle?.type ?? 'Motor');
   const [vMax,   setVMax]   = useState<Vehicle['maxPackageSize']>(userProfile.vehicle?.maxPackageSize ?? 'M');
 
-  const saveProfile = () => {
-    const updated: UserProfile = {
-      ...userProfile,
+  const saveProfile = async () => {
+    const updates: Partial<UserProfile> = {
       name: editName,
       phone: editPhone,
       avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(editName)}&background=2091e7&color=fff&size=128`,
     };
-    saveUserProfile(updated);
+    try {
+      await api.updateProfile(userProfile.id, updates);
+    } catch (err: any) {
+      alert('Gagal menyimpan profil: ' + err.message);
+      return;
+    }
     setEditingProfile(false);
   };
 
-  const saveVehicle = () => {
+  const saveVehicle = async () => {
     const vehicle: Vehicle = { type: vType, plate: vPlate, color: vColor, maxPackageSize: vMax };
-    saveUserProfile({ ...userProfile, vehicle, role: 'driver' });
+    try {
+      await api.updateProfile(userProfile.id, { vehicle, role: 'driver' });
+    } catch (err: any) {
+      alert('Gagal menyimpan kendaraan: ' + err.message);
+      return;
+    }
     setEditVehicle(false);
     if (role !== 'driver') onSwitchRole('driver');
   };
@@ -67,11 +77,11 @@ export const SetelanAkun: React.FC<SetelanAkunProps> = ({
   };
 
   const handleReset = () => {
-    if (confirm('Reset seluruh data sandbox? Paket, pesan, dan rute akan dihapus.')) {
-      clearSandboxData();
-      localStorage.removeItem('kirimin_custom_presets');
+    if (confirm('Reset seluruh data? Anda akan di-logout setelah reset.')) {
+      localStorage.clear();
       setPresets(LOCATION_PRESETS);
-      alert('Data sandbox direset.');
+      alert('Data lokal direset. Silakan login ulang.');
+      window.location.reload();
     }
   };
 

@@ -33,6 +33,10 @@ export const KirimRute: React.FC<KirimRuteProps> = ({
   const [estimatedPrice, setEstimatedPrice] = useState(0);
   const [pickMode, setPickMode] = useState<'pickup'|'dropoff'|null>(null);
 
+  // Saved sender routes presets
+  const [saveRouteName, setSaveRouteName] = useState('');
+  const [savedSenderRoutes, setSavedSenderRoutes] = useState<any[]>([]);
+
   useEffect(() => {
     if (pickupCoords && dropoffCoords) {
       const d = getDistance(pickupCoords.lat, pickupCoords.lng, dropoffCoords.lat, dropoffCoords.lng);
@@ -43,6 +47,13 @@ export const KirimRute: React.FC<KirimRuteProps> = ({
       setEstimatedPrice(0);
     }
   }, [pickupCoords, dropoffCoords]);
+
+  useEffect(() => {
+    const local = localStorage.getItem('kirimin_saved_sender_routes');
+    if (local) {
+      setSavedSenderRoutes(JSON.parse(local));
+    }
+  }, []);
 
   const selectPreset = (type: 'pickup'|'dropoff', preset: LocationPreset) => {
     if (type === 'pickup') {
@@ -64,6 +75,44 @@ export const KirimRute: React.FC<KirimRuteProps> = ({
       setDropoffAddress(address);
     }
     setPickMode(null);
+  };
+
+  const handleSaveRoute = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!pickupCoords || !dropoffCoords) {
+      alert('Tentukan rute penjemputan dan destinasi terlebih dahulu.');
+      return;
+    }
+    if (!saveRouteName.trim()) {
+      alert('Masukkan nama rute.');
+      return;
+    }
+    const newRoute = {
+      id: 'sr_' + Date.now(),
+      name: saveRouteName.trim(),
+      pickupAddress,
+      pickupCoords,
+      dropoffAddress,
+      dropoffCoords,
+    };
+    const updated = [newRoute, ...savedSenderRoutes];
+    setSavedSenderRoutes(updated);
+    localStorage.setItem('kirimin_saved_sender_routes', JSON.stringify(updated));
+    setSaveRouteName('');
+    alert('Rute pengiriman disimpan!');
+  };
+
+  const handleLoadRoute = (r: any) => {
+    setPickupAddress(r.pickupAddress);
+    setPickupCoords(r.pickupCoords);
+    setDropoffAddress(r.dropoffAddress);
+    setDropoffCoords(r.dropoffCoords);
+  };
+
+  const handleDeleteRoute = (id: string) => {
+    const updated = savedSenderRoutes.filter(r => r.id !== id);
+    setSavedSenderRoutes(updated);
+    localStorage.setItem('kirimin_saved_sender_routes', JSON.stringify(updated));
   };
 
   const handleNext = (e: React.FormEvent) => {
@@ -105,7 +154,6 @@ export const KirimRute: React.FC<KirimRuteProps> = ({
         onExitPickMode={() => setPickMode(null)}
       />
 
-      {/* Pick mode cancel bar - shown above map on mobile */}
       {pickMode && (
         <div style={{ fontSize: '12px', color: '#64748b', textAlign: 'center', padding: '4px 0' }}>
           Ketuk peta → pilih pin temp → tekan <strong>Konfirmasi</strong>
@@ -159,7 +207,6 @@ export const KirimRute: React.FC<KirimRuteProps> = ({
             )}
           </div>
 
-          {/* Quick-action chips */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             <button
               type="button"
@@ -297,11 +344,77 @@ export const KirimRute: React.FC<KirimRuteProps> = ({
           />
         </div>
 
+        {/* ── Save route section ── */}
+        {pickupCoords && dropoffCoords && (
+          <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 700 }}>Simpan Rute Ini</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                placeholder="Nama Preset Rute (e.g. Rumah ke Kantor)"
+                value={saveRouteName}
+                onChange={e => setSaveRouteName(e.target.value)}
+                className="form-input"
+                style={{ flex: 1, padding: '8px 12px', fontSize: '12px' }}
+              />
+              <button
+                type="button"
+                onClick={handleSaveRoute}
+                className="btn-primary"
+                style={{ width: 'auto', padding: '8px 16px', fontSize: '12px' }}
+              >
+                Simpan
+              </button>
+            </div>
+          </div>
+        )}
+
         <button type="submit" className="btn-primary">
           Lanjut
           <span className="material-icons">arrow_forward</span>
         </button>
       </form>
+
+      {/* ── Saved Route List ── */}
+      {savedSenderRoutes.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#475569' }}>
+            💾 Rute Pengiriman Tersimpan
+          </span>
+          {savedSenderRoutes.map(r => (
+            <div
+              key={r.id}
+              style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '12px 16px', borderRadius: '16px',
+                background: '#f8fafc', border: '1px solid #e2e8f0',
+              }}
+            >
+              <div
+                onClick={() => handleLoadRoute(r)}
+                style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, cursor: 'pointer' }}
+              >
+                <span className="material-icons" style={{ fontSize: '20px', color: '#2091e7' }}>alt_route</span>
+                <div>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
+                    {r.name}
+                  </span>
+                  <p style={{ fontSize: '10px', color: '#64748b', margin: '2px 0 0 0' }}>
+                    📍 {r.pickupAddress.split(',')[0]} → 🏁 {r.dropoffAddress.split(',')[0]}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDeleteRoute(r.id)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '6px' }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px', color: '#ef4444' }}>delete_outline</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

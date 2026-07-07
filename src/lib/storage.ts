@@ -26,8 +26,9 @@ export interface Package {
   driverPlate: string | null;
   buktiFoto: string | null;
   createdAt: string;
-  /** ID of the user who created this package */
   ownerId?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
 }
 
 // ─── Driver Route ─────────────────────────────────────────────────────────────
@@ -63,13 +64,13 @@ export interface UserProfile {
   name: string;
   email: string;
   phone: string;
-  /** Primary role preference – can be switched in-app */
   role: 'pengirim' | 'driver' | 'admin';
   vehicle?: Vehicle;
   avatar?: string;
   createdAt: string;
   location?: Coordinate;
   locationName?: string;
+  rating?: number;
 }
 
 // ─── Keys ────────────────────────────────────────────────────────────────────

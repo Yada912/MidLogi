@@ -3,12 +3,14 @@ import { StepHeader } from '../../components/StepHeader';
 import { MapPlaceholder } from '../../components/MapPlaceholder';
 import { VIRTUAL_DRIVERS } from '../../../lib/mockData';
 import { findBestDetour } from '../../../lib/matching';
-import { getDriverRoute, type Package } from '../../../lib/storage';
+import type { DriverRoute } from '../../../lib/storage';
+import * as api from '../../../lib/api';
 
 interface KirimPesanProps {
   navigate: (screen: string) => void;
   draftPackage: any;
   setDraftPackage: (pkg: any) => void;
+  driverRoute?: DriverRoute | null;
 }
 
 const VEHICLE_ICONS: Record<string, string> = {
@@ -25,7 +27,6 @@ function getVehicleIcon(vehicle: string): string {
   return 'two_wheeler';
 }
 
-// Compute simple estimated times from driver departure
 function estTimes(departure: string, detourKm: number): { pickup: string; dropoff: string } {
   const [h, m] = departure.split(':').map(Number);
   const base = h * 60 + (m || 0);
@@ -39,33 +40,37 @@ export const KirimPesan: React.FC<KirimPesanProps> = ({
   navigate,
   draftPackage,
   setDraftPackage,
+  driverRoute,
 }) => {
   const [deliveryTimeOption, setDeliveryTimeOption] = useState<'Kirim Sekarang'|'Waktu Tertentu'|'Dalam Sehari Ini'>('Kirim Sekarang');
   const [specificTime, setSpecificTime]  = useState('14:00');
   const [selectedDriverId, setSelectedDriverId] = useState<string|null>(null);
   const [matchedDrivers, setMatchedDrivers]     = useState<any[]>([]);
 
+  // Payment checkout state
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'GoPay' | 'OVO' | 'Transfer Bank' | 'COD'>('GoPay');
+
   useEffect(() => {
     if (!draftPackage.pickupCoords || !draftPackage.dropoffCoords) return;
 
     const list: any[] = [];
 
-    // Custom driver route (sandbox tab 2)
-    const customRoute = getDriverRoute();
-    if (customRoute.active && customRoute.waypoints.length >= 2) {
-      const match = findBestDetour(customRoute.waypoints, draftPackage.pickupCoords, draftPackage.dropoffCoords);
+    // Custom driver route (if the logged-in user also has an active driver route)
+    if (driverRoute && driverRoute.active && driverRoute.waypoints.length >= 2) {
+      const match = findBestDetour(driverRoute.waypoints, draftPackage.pickupCoords, draftPackage.dropoffCoords);
       if (match.isMatch) {
         list.push({
           id: 'driver_self',
-          name: 'Anda (Tab Driver)',
-          phone: '0857-9988-7766',
+          name: 'Anda (Rute Aktif)',
+          phone: '-',
           avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&fit=crop&q=80',
           rating: 5.0,
-          vehicle: 'Motor Anda',
-          vehiclePlate: 'B 9876 XYZ',
+          vehicle: 'Kendaraan Anda',
+          vehiclePlate: '-',
           baseFee: 12000,
           detourFeeRate: 2000,
-          departureTime: customRoute.departureTime,
+          departureTime: driverRoute.departureTime,
           match,
         });
       }
@@ -91,44 +96,52 @@ export const KirimPesan: React.FC<KirimPesanProps> = ({
 
   const selectedDriver = matchedDrivers.find(d => d.id === selectedDriverId);
   const detourFee = selectedDriver ? Math.round(selectedDriver.match.detourDistance * selectedDriver.detourFeeRate) : 0;
+  const applicationFee = 2000;
   const totalCost = (draftPackage.price || 0) + detourFee;
+  const totalPayable = totalCost + applicationFee;
 
   const directDrivers = matchedDrivers.filter(d => d.match.detourDistance <= 0.8);
   const detourDrivers = matchedDrivers.filter(d => d.match.detourDistance > 0.8);
 
-  const handleOrder = () => {
+  const handleOrder = async () => {
     if (!selectedDriverId || !selectedDriver) {
       alert('Silakan pilih pengemudi terlebih dahulu.');
       return;
     }
-    const newPkg: Package = {
-      id: 'pkg_' + Date.now(),
+    const pkgData = {
       category:        draftPackage.category,
       weightSize:      draftPackage.weightSize,
-      photoName:       draftPackage.photoName,
-      handling:        draftPackage.handling,
-      description:     draftPackage.description,
+      photoName:       draftPackage.photoName || '',
+      handling:        draftPackage.handling || [],
+      description:     draftPackage.description || '',
       pickupAddress:   draftPackage.pickupAddress,
       pickupCoords:    draftPackage.pickupCoords,
       dropoffAddress:  draftPackage.dropoffAddress,
       dropoffCoords:   draftPackage.dropoffCoords,
       deliveryMethod:  draftPackage.deliveryMethod,
-      instruction:     draftPackage.instruction,
+      instruction:     draftPackage.instruction || '',
       deliveryTime:    deliveryTimeOption === 'Waktu Tertentu' ? `Jam ${specificTime}` : deliveryTimeOption,
-      status:          'Mencari Driver',
+      status:          'Mencari Driver' as const,
       price:           draftPackage.price,
       detourFee,
       driverId:        selectedDriver.id,
       driverName:      selectedDriver.name,
       driverPhone:     selectedDriver.phone,
-      driverAvatar:    selectedDriver.avatar,
-      driverVehicle:   selectedDriver.vehicle,
-      driverPlate:     selectedDriver.vehiclePlate,
+      driverAvatar:    selectedDriver.avatar || '',
+      driverVehicle:   selectedDriver.vehicle || '',
+      driverPlate:     selectedDriver.vehiclePlate || '',
       buktiFoto:       null,
-      createdAt:       new Date().toISOString(),
+      paymentMethod,
+      paymentStatus:   paymentMethod === 'COD' ? 'Pending' : 'Lunas',
     };
-    setDraftPackage(newPkg);
-    navigate('KirimMencariDriver');
+    try {
+      const created = await api.createPackage(pkgData);
+      setDraftPackage(created);
+      setShowPaymentModal(false);
+      navigate('KirimMencariDriver');
+    } catch (err: any) {
+      alert('Gagal memesan pengiriman: ' + err.message);
+    }
   };
 
   const DriverCard = ({ driver }: { driver: any }) => {
@@ -297,7 +310,7 @@ export const KirimPesan: React.FC<KirimPesanProps> = ({
         )}
       </div>
 
-      {/* ── Order Summary ── */}
+      {/* ── Order Summary & Button ── */}
       {selectedDriver && (
         <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <span style={{ fontSize: '13px', fontWeight: 700 }}>Rincian Biaya</span>
@@ -320,15 +333,144 @@ export const KirimPesan: React.FC<KirimPesanProps> = ({
               fontSize: '16px', fontWeight: 800, color: '#1e293b',
               paddingTop: '8px', borderTop: '1px solid #f1f5f9',
             }}>
-              <span>Total</span>
+              <span>Subtotal</span>
               <span style={{ color: '#2091e7' }}>Rp {totalCost.toLocaleString('id-ID')}</span>
             </div>
           </div>
 
-          <button onClick={handleOrder} className="btn-primary">
+          <button onClick={() => setShowPaymentModal(true)} className="btn-primary">
             <span className="material-icons">payment</span>
             Bayar & Pesan Sekarang
           </button>
+        </div>
+      )}
+
+      {/* ── Secure Payment Modal Overlay ── */}
+      {showPaymentModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)',
+          zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
+        }}>
+          <div className="premium-card" style={{
+            width: '100%', maxWidth: '420px', background: '#fff', borderRadius: '24px',
+            padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.15)', animation: 'slideUp 0.3s ease-out',
+          }}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="material-icons" style={{ color: '#2091e7', fontSize: '22px' }}>security</span>
+                <span style={{ fontSize: '16px', fontWeight: 800 }}>Pembayaran Aman</span>
+              </div>
+              <button onClick={() => setShowPaymentModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
+                <span className="material-icons" style={{ color: '#64748b' }}>close</span>
+              </button>
+            </div>
+
+            {/* Price breakdown */}
+            <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
+                <span>Jasa Logistik</span>
+                <span style={{ fontWeight: 600, color: '#334155' }}>Rp {(draftPackage.price || 0).toLocaleString('id-ID')}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
+                <span>Detour Surcharge ({selectedDriver?.match.detourDistance} km)</span>
+                <span style={{ fontWeight: 600, color: '#334155' }}>Rp {detourFee.toLocaleString('id-ID')}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
+                <span>Biaya Layanan Aplikasi</span>
+                <span style={{ fontWeight: 600, color: '#334155' }}>Rp {applicationFee.toLocaleString('id-ID')}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: 800, borderTop: '1px dashed #cbd5e1', paddingTop: '8px', marginTop: '4px' }}>
+                <span>Total Bayar</span>
+                <span style={{ color: '#2091e7' }}>Rp {totalPayable.toLocaleString('id-ID')}</span>
+              </div>
+            </div>
+
+            {/* Payment options */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#475569' }}>Pilih Metode Pembayaran</span>
+              
+              {/* GoPay */}
+              <div
+                onClick={() => setPaymentMethod('GoPay')}
+                style={{
+                  padding: '12px 16px', borderRadius: '14px', border: `2px solid ${paymentMethod === 'GoPay' ? '#00a5cf' : '#e2e8f0'}`,
+                  background: paymentMethod === 'GoPay' ? '#eefbfe' : '#fff', cursor: 'pointer',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.2s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#00a5cf', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-icons" style={{ color: '#fff', fontSize: '16px' }}>account_balance_wallet</span>
+                  </div>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>GoPay</span>
+                </div>
+                {paymentMethod === 'GoPay' && <span className="material-icons" style={{ color: '#00a5cf', fontSize: '20px' }}>check_circle</span>}
+              </div>
+
+              {/* OVO */}
+              <div
+                onClick={() => setPaymentMethod('OVO')}
+                style={{
+                  padding: '12px 16px', borderRadius: '14px', border: `2px solid ${paymentMethod === 'OVO' ? '#4c2a86' : '#e2e8f0'}`,
+                  background: paymentMethod === 'OVO' ? '#f5f3ff' : '#fff', cursor: 'pointer',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.2s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#4c2a86', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-icons" style={{ color: '#fff', fontSize: '16px' }}>stars</span>
+                  </div>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>OVO</span>
+                </div>
+                {paymentMethod === 'OVO' && <span className="material-icons" style={{ color: '#4c2a86', fontSize: '20px' }}>check_circle</span>}
+              </div>
+
+              {/* Bank Transfer */}
+              <div
+                onClick={() => setPaymentMethod('Transfer Bank')}
+                style={{
+                  padding: '12px 16px', borderRadius: '14px', border: `2px solid ${paymentMethod === 'Transfer Bank' ? '#2091e7' : '#e2e8f0'}`,
+                  background: paymentMethod === 'Transfer Bank' ? '#e8f4ff' : '#fff', cursor: 'pointer',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.2s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#2091e7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-icons" style={{ color: '#fff', fontSize: '16px' }}>account_balance</span>
+                  </div>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>Transfer Bank (VA BCA/Mandiri)</span>
+                </div>
+                {paymentMethod === 'Transfer Bank' && <span className="material-icons" style={{ color: '#2091e7', fontSize: '20px' }}>check_circle</span>}
+              </div>
+
+              {/* COD */}
+              <div
+                onClick={() => setPaymentMethod('COD')}
+                style={{
+                  padding: '12px 16px', borderRadius: '14px', border: `2px solid ${paymentMethod === 'COD' ? '#f59e0b' : '#e2e8f0'}`,
+                  background: paymentMethod === 'COD' ? '#fffbeb' : '#fff', cursor: 'pointer',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.2s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-icons" style={{ color: '#fff', fontSize: '16px' }}>payments</span>
+                  </div>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>Cash on Delivery (COD)</span>
+                </div>
+                {paymentMethod === 'COD' && <span className="material-icons" style={{ color: '#f59e0b', fontSize: '20px' }}>check_circle</span>}
+              </div>
+            </div>
+
+            {/* Confirm Payment button */}
+            <button onClick={handleOrder} className="btn-primary" style={{ marginTop: '6px', padding: '14px' }}>
+              <span className="material-icons">check_circle</span>
+              Konfirmasi Pembayaran
+            </button>
+          </div>
         </div>
       )}
     </div>

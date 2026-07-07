@@ -50,11 +50,15 @@ export const MapPlaceholder: React.FC<MapPlaceholderProps> = ({
   onLocationSelect,
   onExitPickMode,
 }) => {
-  const containerRef  = useRef<HTMLDivElement>(null);
-  const mapRef        = useRef<L.Map | null>(null);
-  const layersRef     = useRef<L.Layer[]>([]);
-  const tempMarkerRef = useRef<L.Marker | null>(null);
-  const gpsMarkerRef  = useRef<L.Marker | null>(null);
+  const containerRef       = useRef<HTMLDivElement>(null);
+  const mapRef             = useRef<L.Map | null>(null);
+  const layersRef          = useRef<L.Layer[]>([]);
+  const tempMarkerRef      = useRef<L.Marker | null>(null);
+  const gpsMarkerRef       = useRef<L.Marker | null>(null);
+  // Tracks whether the user has manually panned/zoomed — if so, skip auto-fit
+  const userHasInteracted  = useRef(false);
+  // Key to detect when the actual pin locations change (not just routedCoords updates)
+  const prevPinKeyRef      = useRef<string>('');
 
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [pendingCoord, setPendingCoord] = useState<Coordinate | null>(null);
@@ -110,6 +114,11 @@ export const MapPlaceholder: React.FC<MapPlaceholderProps> = ({
 
     mapRef.current = map;
 
+    // Detect user-initiated pan/zoom so we can skip auto-fit later
+    const onMoveStart = () => { userHasInteracted.current = true; };
+    map.on('dragstart', onMoveStart);
+    map.on('zoomstart', onMoveStart);
+
     const timer = setTimeout(() => {
       if (mounted && mapRef.current) {
         try { map.invalidateSize(); } catch { /* ignore */ }
@@ -120,12 +129,14 @@ export const MapPlaceholder: React.FC<MapPlaceholderProps> = ({
     return () => {
       mounted = false;
       clearTimeout(timer);
+      map.off('dragstart', onMoveStart);
+      map.off('zoomstart', onMoveStart);
       map.remove();
       mapRef.current = null;
       setReady(false);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); 
 
   // ResizeObserver to handle dynamic height transitions cleanly
   useEffect(() => {
@@ -274,11 +285,21 @@ export const MapPlaceholder: React.FC<MapPlaceholderProps> = ({
       layersRef.current.push(line);
     }
 
-    // Fit map bounds
-    if (allPts.length >= 2) {
-      map.fitBounds(allPts, { padding: [35, 35], maxZoom: 15 });
-    } else if (allPts.length === 1) {
-      map.setView(allPts[0], 14);
+    // Fit map bounds only when the pin locations themselves change,
+    // NOT when routedCoords is updated (that would reset user pan/zoom).
+    const pinKey = JSON.stringify(allPts.filter((_, i) => i < 10));
+    const pinsChanged = pinKey !== prevPinKeyRef.current;
+    if (pinsChanged) {
+      prevPinKeyRef.current = pinKey;
+      userHasInteracted.current = false; // reset interaction flag on new route
+    }
+
+    if (!userHasInteracted.current) {
+      if (allPts.length >= 2) {
+        map.fitBounds(allPts, { padding: [35, 35], maxZoom: 15 });
+      } else if (allPts.length === 1) {
+        map.setView(allPts[0], 14);
+      }
     }
   }, [points, labels, pickupPoint, dropoffPoint, routedCoords, ready]);
 

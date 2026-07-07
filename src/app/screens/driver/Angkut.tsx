@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { MapPlaceholder } from '../../components/MapPlaceholder';
 import { LOCATION_PRESETS, PACKAGE_SIZES, CATEGORIES } from '../../../lib/mockData';
-import { getDriverRoute, saveDriverRoute, type DriverRoute } from '../../../lib/storage';
+import type { DriverRoute, UserProfile } from '../../../lib/storage';
 import type { Coordinate } from '../../../lib/mockData';
+import * as api from '../../../lib/api';
 
 interface AngkutProps {
   navigate: (screen: string) => void;
+  userProfile: UserProfile;
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -23,7 +25,7 @@ const HANDLING_OPTIONS = [
   { key: 'Jaga Suhu',      icon: 'ac_unit',             label: 'Jaga Suhu'    },
 ];
 
-export const Angkut: React.FC<AngkutProps> = ({ navigate }) => {
+export const Angkut: React.FC<AngkutProps> = ({ navigate, userProfile }) => {
   const [departureTime,       setDepartureTime]       = useState('08:00');
   const [waypoints,           setWaypoints]           = useState<{ name: string; lat: number; lng: number }[]>([]);
   const [maxPackets,          setMaxPackets]          = useState(3);
@@ -32,20 +34,33 @@ export const Angkut: React.FC<AngkutProps> = ({ navigate }) => {
   const [acceptedHandling,    setAcceptedHandling]    = useState<string[]>([]);
   const [mapPickIndex,        setMapPickIndex]        = useState<number|null>(null);
 
+  // Saved driver routes state
+  const [saveRouteName, setSaveRouteName] = useState('');
+  const [savedDriverRoutes, setSavedDriverRoutes] = useState<any[]>([]);
+
   // Load saved route on mount
   useEffect(() => {
-    const route = getDriverRoute();
-    if (route?.waypoints.length > 0) {
-      setDepartureTime(route.departureTime);
-      setWaypoints(route.waypoints);
-      setMaxPackets(route.maxPackets);
-      setMaxPackageSize(route.maxPackageSize);
-      setAcceptedCategories(route.acceptedCategories);
-    } else {
-      setWaypoints([
-        { name: 'Rumah (Kebayoran Baru)', lat: -6.2442, lng: 106.7973 },
-        { name: 'Kuningan (Kantor)',      lat: -6.2230, lng: 106.8294 },
-      ]);
+    api.fetchDriverRoute(userProfile.id).then(route => {
+      if (route && route.waypoints.length > 0) {
+        setDepartureTime(route.departureTime);
+        setWaypoints(route.waypoints);
+        setMaxPackets(route.maxPackets);
+        setMaxPackageSize(route.maxPackageSize);
+        setAcceptedCategories(route.acceptedCategories);
+      } else {
+        setWaypoints([
+          { name: 'Rumah (Kebayoran Baru)', lat: -6.2442, lng: 106.7973 },
+          { name: 'Kuningan (Kantor)',      lat: -6.2230, lng: 106.8294 },
+        ]);
+      }
+    });
+  }, [userProfile.id]);
+
+  // Sync saved route presets from localStorage (UI-only, per-browser)
+  useEffect(() => {
+    const local = localStorage.getItem('kirimin_saved_driver_routes');
+    if (local) {
+      setSavedDriverRoutes(JSON.parse(local));
     }
   }, []);
 
@@ -74,28 +89,44 @@ export const Angkut: React.FC<AngkutProps> = ({ navigate }) => {
     setMapPickIndex(null);
   };
 
-  const loadPreset = (type: 'kerja'|'bandara') => {
-    if (type === 'kerja') {
-      setWaypoints([
-        { name: 'Rumah (Kebayoran Baru)', lat: -6.2442, lng: 106.7973 },
-        { name: 'Grand Indonesia',        lat: -6.1951, lng: 106.8231 },
-        { name: 'Kuningan (Kantor)',      lat: -6.2230, lng: 106.8294 },
-      ]);
-      setDepartureTime('08:00');
-    } else {
-      setWaypoints([
-        { name: 'Kampus UI Depok',           lat: -6.3628, lng: 106.8240 },
-        { name: 'Cilandak Town Square',      lat: -6.2915, lng: 106.8028 },
-        { name: 'Bandara Soekarno-Hatta',   lat: -6.1256, lng: 106.6559 },
-      ]);
-      setDepartureTime('13:30');
+  const handleSaveRoute = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (waypoints.length < 2) {
+      alert('Tentukan rute dengan minimal 2 titik.');
+      return;
     }
+    if (!saveRouteName.trim()) {
+      alert('Masukkan nama rute.');
+      return;
+    }
+    const newRoute = {
+      id: 'dr_' + Date.now(),
+      name: saveRouteName.trim(),
+      waypoints,
+      departureTime,
+    };
+    const updated = [newRoute, ...savedDriverRoutes];
+    setSavedDriverRoutes(updated);
+    localStorage.setItem('kirimin_saved_driver_routes', JSON.stringify(updated));
+    setSaveRouteName('');
+    alert('Rute harian berhasil disimpan!');
+  };
+
+  const handleLoadRoute = (r: any) => {
+    setWaypoints(r.waypoints);
+    setDepartureTime(r.departureTime);
+  };
+
+  const handleDeleteRoute = (id: string) => {
+    const updated = savedDriverRoutes.filter(r => r.id !== id);
+    setSavedDriverRoutes(updated);
+    localStorage.setItem('kirimin_saved_driver_routes', JSON.stringify(updated));
   };
 
   const toggleCategory  = (cat: string)  => setAcceptedCategories(p  => p.includes(cat)  ? p.filter(x => x !== cat)  : [...p, cat]);
   const toggleHandling  = (key: string)  => setAcceptedHandling(p    => p.includes(key)  ? p.filter(x => x !== key)  : [...p, key]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (waypoints.length < 2) { alert('Minimal 2 titik.'); return; }
     if (acceptedCategories.length === 0) { alert('Pilih minimal satu kategori.'); return; }
@@ -108,8 +139,12 @@ export const Angkut: React.FC<AngkutProps> = ({ navigate }) => {
       acceptedCategories,
       active: true,
     };
-    saveDriverRoute(routeData);
-    navigate('AngkutDash');
+    try {
+      await api.upsertDriverRoute(userProfile.id, routeData);
+      navigate('AngkutDash');
+    } catch (err: any) {
+      alert('Gagal mengaktifkan rute: ' + err.message);
+    }
   };
 
   return (
@@ -132,20 +167,41 @@ export const Angkut: React.FC<AngkutProps> = ({ navigate }) => {
         onLocationSelect={handleMapPickSelect}
       />
 
-      {/* Preset routes */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b' }}>⚡ Preset Rute Harian</span>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button onClick={() => loadPreset('kerja')} className="btn-secondary"
-            style={{ flex: 1, padding: '10px', fontSize: '12px', borderRadius: '12px' }}>
-            💼 Rute Kerja
-          </button>
-          <button onClick={() => loadPreset('bandara')} className="btn-secondary"
-            style={{ flex: 1, padding: '10px', fontSize: '12px', borderRadius: '12px' }}>
-            ✈️ Rute Bandara
-          </button>
+      {/* ── Saved Route List ── */}
+      {savedDriverRoutes.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b' }}>📂 Kelola Preset Rute Harian</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {savedDriverRoutes.map(r => (
+              <div
+                key={r.id}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px',
+                  padding: '8px 12px',
+                }}
+              >
+                <div onClick={() => handleLoadRoute(r)} style={{ flex: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="material-icons" style={{ fontSize: '16px', color: '#10b981' }}>map</span>
+                  <div>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>{r.name}</span>
+                    <p style={{ fontSize: '10px', color: '#64748b', margin: '2px 0 0 0' }}>
+                      {r.waypoints.length} titik | Jam {r.departureTime}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteRoute(r.id)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '6px' }}
+                >
+                  <span className="material-icons" style={{ fontSize: '16px', color: '#ef4444' }}>delete_outline</span>
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
@@ -373,6 +429,31 @@ export const Angkut: React.FC<AngkutProps> = ({ navigate }) => {
             })}
           </div>
         </div>
+
+        {/* ── Save driver route preset card ── */}
+        {waypoints.length >= 2 && (
+          <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 700 }}>Simpan Preset Rute Driver</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                placeholder="Nama Preset Rute (e.g. Pulang Kerja)"
+                value={saveRouteName}
+                onChange={e => setSaveRouteName(e.target.value)}
+                className="form-input"
+                style={{ flex: 1, padding: '8px 12px', fontSize: '12px' }}
+              />
+              <button
+                type="button"
+                onClick={handleSaveRoute}
+                className="btn-primary"
+                style={{ width: 'auto', padding: '8px 16px', fontSize: '12px', background: 'linear-gradient(135deg, #34d399, #059669)' }}
+              >
+                Simpan
+              </button>
+            </div>
+          </div>
+        )}
 
         <button type="submit" className="btn-primary" style={{ marginTop: '8px' }}>
           Lanjut ke Dashboard

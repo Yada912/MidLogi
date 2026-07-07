@@ -83,6 +83,12 @@ export const KirimDetail: React.FC<KirimDetailProps> = ({
     navigate('KirimRute');
   };
 
+  const deletePreset = (id: string) => {
+    const list = savedPresets.filter(p => p.id !== id);
+    setSavedPresets(list);
+    localStorage.setItem('kirimin_package_presets', JSON.stringify(list));
+  };
+
   return (
     <div className="screen-content">
       {/* Header */}
@@ -265,22 +271,24 @@ export const KirimDetail: React.FC<KirimDetailProps> = ({
 
       {/* ── Preset List ── */}
       {savedPresets.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#475569' }}>
             ⚡ Gunakan Preset Cepat
           </span>
           {savedPresets.map((p, i) => (
             <div
               key={p.id || i}
-              onClick={() => applyPreset(p)}
               style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '12px 16px', borderRadius: '16px', cursor: 'pointer',
+                padding: '12px 16px', borderRadius: '16px',
                 background: '#f8fafc', border: '1px solid #e2e8f0',
                 transition: 'background 0.15s',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                onClick={() => applyPreset(p)}
+                style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, cursor: 'pointer' }}
+              >
                 <span className="material-icons" style={{ fontSize: '20px', color: '#2091e7' }}>
                   {CATEGORY_ICONS[p.category] ?? 'category'}
                 </span>
@@ -293,7 +301,12 @@ export const KirimDetail: React.FC<KirimDetailProps> = ({
                   </p>
                 </div>
               </div>
-              <span className="material-icons" style={{ fontSize: '18px', color: '#94a3b8' }}>chevron_right</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); deletePreset(p.id); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '6px' }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px', color: '#ef4444' }}>delete_outline</span>
+              </button>
             </div>
           ))}
         </div>

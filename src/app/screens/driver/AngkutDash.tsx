@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { MapPlaceholder } from '../../components/MapPlaceholder';
-import {
-  getDriverRoute, saveDriverRoute, getPackages, savePackages,
-  type Package, type UserProfile
-} from '../../../lib/storage';
+import type { Package, UserProfile, DriverRoute } from '../../../lib/storage';
 import { findBestDetour } from '../../../lib/matching';
+import * as api from '../../../lib/api';
 
 interface AngkutDashProps {
   navigate: (screen: string) => void;
@@ -32,66 +30,72 @@ const SIZE_COLORS: Record<string, string> = {
 };
 
 export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages, userProfile }) => {
-  const [route, setRoute] = useState(getDriverRoute());
+  const [route, setRoute] = useState<DriverRoute>({
+    departureTime: '08:00', waypoints: [], maxPackets: 3,
+    maxPackageSize: 'L', acceptedCategories: [], active: false,
+  });
   const [matchingPackages, setMatchingPackages] = useState<any[]>([]);
 
   // UI States
   const [mapExpanded, setMapExpanded] = useState(true);
   const [hoveredMatch, setHoveredMatch] = useState<any | null>(null);
 
+  // Load driver route from DB
   useEffect(() => {
-    const currentRoute = getDriverRoute();
-    setRoute(currentRoute);
-    if (!currentRoute.active || currentRoute.waypoints.length < 2) return;
+    api.fetchDriverRoute(userProfile.id).then(r => {
+      if (r) setRoute(r);
+    });
+  }, [userProfile.id]);
 
-    const pool = getPackages();
+  useEffect(() => {
+    if (!route.active || route.waypoints.length < 2) return;
+
     const matches: any[] = [];
 
-    pool.forEach(pkg => {
+    packages.forEach(pkg => {
       const sizeHierarchy = ['XS', 'S', 'M', 'L', 'XL'];
-      const driverMaxIdx = sizeHierarchy.indexOf(currentRoute.maxPackageSize);
+      const driverMaxIdx = sizeHierarchy.indexOf(route.maxPackageSize);
       const pkgIdx = sizeHierarchy.indexOf(pkg.weightSize);
       if (pkgIdx > driverMaxIdx) return;
 
       // Filter matched items
       if (pkg.driverId === userProfile.id) {
-        const m = findBestDetour(currentRoute.waypoints, pkg.pickupCoords, pkg.dropoffCoords);
+        const m = findBestDetour(route.waypoints, pkg.pickupCoords, pkg.dropoffCoords);
         matches.push({ package: pkg, match: m, accepted: true });
         return;
       }
       if (pkg.status === 'Mencari Driver') {
-        const m = findBestDetour(currentRoute.waypoints, pkg.pickupCoords, pkg.dropoffCoords);
+        const m = findBestDetour(route.waypoints, pkg.pickupCoords, pkg.dropoffCoords);
         if (m.isMatch) matches.push({ package: pkg, match: m, accepted: false });
       }
     });
 
     setMatchingPackages(matches);
-  }, [packages, userProfile.id]);
+  }, [packages, userProfile.id, route]);
 
-  const handleAcceptPackage = (pkgId: string) => {
-    const all = getPackages();
-    const currentRoute = getDriverRoute();
-    const acceptedCount = all.filter(p => p.driverId === userProfile.id && p.status !== 'Telah Tiba' && p.status !== 'Dibatalkan').length;
-    if (acceptedCount >= currentRoute.maxPackets) {
-      alert(`Bagasi penuh! Maks ${currentRoute.maxPackets} paket.`);
+  const handleAcceptPackage = async (pkgId: string) => {
+    const acceptedCount = packages.filter(p => p.driverId === userProfile.id && p.status !== 'Telah Tiba' && p.status !== 'Dibatalkan').length;
+    if (acceptedCount >= route.maxPackets) {
+      alert(`Bagasi penuh! Maks ${route.maxPackets} paket.`);
       return;
     }
-    const updated = all.map(p => p.id === pkgId ? {
-      ...p,
-      status: 'Menunggu Pick-up' as const,
-      driverId: userProfile.id,
-      driverName: userProfile.name,
-      driverPhone: userProfile.phone,
-      driverAvatar: userProfile.avatar ?? null,
-      driverVehicle: userProfile.vehicle ? `${userProfile.vehicle.type} (${userProfile.vehicle.color})` : 'Motor',
-      driverPlate: userProfile.vehicle?.plate ?? 'B 0000 XYZ',
-    } : p);
-    savePackages(updated);
+    try {
+      await api.updatePackage(pkgId, {
+        status: 'Menunggu Pick-up',
+        driverId: userProfile.id,
+        driverName: userProfile.name,
+        driverPhone: userProfile.phone,
+        driverAvatar: userProfile.avatar ?? null,
+        driverVehicle: userProfile.vehicle ? `${userProfile.vehicle.type} (${userProfile.vehicle.color})` : 'Motor',
+        driverPlate: userProfile.vehicle?.plate ?? 'B 0000 XYZ',
+      });
+    } catch (err: any) {
+      alert('Gagal menerima paket: ' + err.message);
+    }
   };
 
-  const handleAutoReroute = (pkg: Package, insertPickupIdx: number, insertDropoffIdx: number) => {
-    const currentRoute = getDriverRoute();
-    const newWaypoints = [...currentRoute.waypoints];
+  const handleAutoReroute = async (pkg: Package, insertPickupIdx: number, insertDropoffIdx: number) => {
+    const newWaypoints = [...route.waypoints];
     newWaypoints.splice(insertPickupIdx, 0, {
       name: `Jemput: ${pkg.category} (${pkg.pickupAddress.split(',')[0]})`,
       lat: pkg.pickupCoords.lat, lng: pkg.pickupCoords.lng,
@@ -100,9 +104,13 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages, user
       name: `Antar: ${pkg.category} (${pkg.dropoffAddress.split(',')[0]})`,
       lat: pkg.dropoffCoords.lat, lng: pkg.dropoffCoords.lng,
     });
-    const updatedRoute = { ...currentRoute, waypoints: newWaypoints };
-    saveDriverRoute(updatedRoute);
-    setRoute(updatedRoute);
+    const updatedRoute = { ...route, waypoints: newWaypoints };
+    try {
+      await api.upsertDriverRoute(userProfile.id, updatedRoute);
+      setRoute(updatedRoute);
+    } catch (err: any) {
+      alert('Gagal menyisipkan rute: ' + err.message);
+    }
   };
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -431,7 +439,16 @@ export const AngkutDash: React.FC<AngkutDashProps> = ({ navigate, packages, user
 
         {/* Action buttons */}
         <button
-          onClick={() => navigate('Angkut')}
+          onClick={async () => {
+            const updatedRoute = { ...route, active: false };
+            try {
+              await api.upsertDriverRoute(userProfile.id, updatedRoute);
+              setRoute(updatedRoute);
+              navigate('Angkut');
+            } catch (err: any) {
+              alert('Gagal menonaktifkan rute: ' + err.message);
+            }
+          }}
           className="btn-secondary"
           style={{ background: '#fef2f2', borderColor: '#fca5a5', color: '#dc2626', padding: '10px', fontSize: '13px' }}
         >

@@ -1,61 +1,56 @@
 import React, { useState } from 'react';
-import { type Package, savePackages, getPackages } from '../../../lib/storage';
+import type { Package, UserProfile } from '../../../lib/storage';
 import { MapPlaceholder } from '../../components/MapPlaceholder';
 import { BuktiKameraMock } from '../../components/BuktiKameraMock';
+import * as api from '../../../lib/api';
 
 interface AngkutProsesProps {
   navigate: (screen: string) => void;
   packages: Package[];
+  userProfile: UserProfile;
 }
 
-export const AngkutProses: React.FC<AngkutProsesProps> = ({ navigate, packages }) => {
+export const AngkutProses: React.FC<AngkutProsesProps> = ({ navigate, packages, userProfile }) => {
   const [activeCameraPkgId, setActiveCameraPkgId] = useState<string | null>(null);
 
   // Filter packages carried by this driver that are not finished
   const activeJobs = packages.filter(
-    (p) => p.driverId === 'driver_self' && p.status !== 'Telah Tiba' && p.status !== 'Dibatalkan'
+    (p) => p.driverId === userProfile.id && p.status !== 'Telah Tiba' && p.status !== 'Dibatalkan'
   );
 
-  const handlePickup = (pkgId: string) => {
-    const all = getPackages();
-    const updated = all.map(p => {
-      if (p.id === pkgId) {
-        return { ...p, status: 'Dalam Perjalanan' as const };
-      }
-      return p;
-    });
-    savePackages(updated);
+  const handlePickup = async (pkgId: string) => {
+    try {
+      await api.updatePackage(pkgId, { status: 'Dalam Perjalanan' });
+    } catch (err: any) {
+      alert('Gagal konfirmasi pick-up: ' + err.message);
+    }
   };
 
   const handleDropoffClick = (pkgId: string) => {
     setActiveCameraPkgId(pkgId);
   };
 
-  const handleCaptureSuccess = (imageUri: string) => {
+  const handleCaptureSuccess = async (imageUri: string) => {
     if (!activeCameraPkgId) return;
 
-    const all = getPackages();
-    const updated = all.map(p => {
-      if (p.id === activeCameraPkgId) {
-        return { 
-          ...p, 
-          status: 'Telah Tiba' as const,
-          buktiFoto: imageUri
-        };
-      }
-      return p;
-    });
-    savePackages(updated);
-    
-    // Save to financial logs
-    const completedPkg = updated.find(p => p.id === activeCameraPkgId);
-    if (completedPkg) {
-      const currentEarnings = parseFloat(localStorage.getItem('kirimin_driver_earnings') || '0');
-      const totalEarned = currentEarnings + completedPkg.price + completedPkg.detourFee;
-      localStorage.setItem('kirimin_driver_earnings', totalEarned.toString());
-    }
+    const completedPkg = packages.find(p => p.id === activeCameraPkgId);
+    if (!completedPkg) return;
 
-    setActiveCameraPkgId(null);
+    try {
+      // Update package status and proof photo in Supabase
+      await api.updatePackage(activeCameraPkgId, { 
+        status: 'Telah Tiba',
+        buktiFoto: imageUri
+      });
+
+      // Add to driver earnings in Supabase profiles table
+      const earning = completedPkg.price + (completedPkg.detourFee ?? 0);
+      await api.addEarnings(userProfile.id, earning);
+    } catch (err: any) {
+      alert('Gagal konfirmasi drop-off: ' + err.message);
+    } finally {
+      setActiveCameraPkgId(null);
+    }
   };
 
   if (activeJobs.length === 0) {

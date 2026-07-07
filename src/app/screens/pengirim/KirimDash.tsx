@@ -1,6 +1,7 @@
 import React from 'react';
-import { type Package, savePackages, getPackages } from '../../../lib/storage';
+import type { Package } from '../../../lib/storage';
 import { MapPlaceholder } from '../../components/MapPlaceholder';
+import * as api from '../../../lib/api';
 
 interface KirimDashProps {
   navigate: (screen: string) => void;
@@ -27,10 +28,13 @@ export const KirimDash: React.FC<KirimDashProps> = ({
     p => p.status !== 'Telah Tiba' && p.status !== 'Dibatalkan'
   );
 
-  const handleCancel = (pkgId: string) => {
+  const handleCancel = async (pkgId: string) => {
     if (confirm('Batalkan pengiriman ini?')) {
-      const all = getPackages();
-      savePackages(all.map(p => p.id === pkgId ? { ...p, status: 'Dibatalkan' as const } : p));
+      try {
+        await api.updatePackage(pkgId, { status: 'Dibatalkan' });
+      } catch (err: any) {
+        alert('Gagal membatalkan: ' + err.message);
+      }
     }
   };
 

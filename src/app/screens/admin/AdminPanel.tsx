@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
-  getUsers, saveUsers, getPackages, savePackages,
   type UserProfile, type Package, type Vehicle
 } from '../../../lib/storage';
 import { MapPlaceholder } from '../../components/MapPlaceholder';
 import type { Coordinate } from '../../../lib/mockData';
+import * as api from '../../../lib/api';
 
 interface AdminPanelProps {
   activeSection: 'dashboard' | 'users' | 'orders';
@@ -31,8 +31,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [pickMode, setPickMode] = useState<'pickup' | null>(null);
 
   useEffect(() => {
-    setUsers(getUsers());
-    setAllPackages(getPackages());
+    api.fetchAllProfiles().then(setUsers);
+    api.fetchPackages().then(setAllPackages);
   }, [packages]);
 
   // Calculations for Stats
@@ -56,31 +56,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   );
 
   // Actions for Users
-  const handleSaveUser = (e: React.FormEvent) => {
+  const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
-
-    const updatedUsers = users.map(u => u.id === editingUser.id ? editingUser : u);
-    saveUsers(updatedUsers);
-    setUsers(updatedUsers);
-    setEditingUser(null);
-    alert('User berhasil diperbarui!');
+    try {
+      await api.updateProfile(editingUser.id, editingUser);
+      setUsers(prev => prev.map(u => u.id === editingUser.id ? editingUser : u));
+      setEditingUser(null);
+      alert('User berhasil diperbarui!');
+    } catch (err: any) {
+      alert('Gagal memperbarui user: ' + err.message);
+    }
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     if (confirm('Hapus user ini secara permanen?')) {
-      const updatedUsers = users.filter(u => u.id !== userId);
-      saveUsers(updatedUsers);
-      setUsers(updatedUsers);
+      try {
+        const { error } = await (await import('../../../lib/supabase')).supabase
+          .from('profiles').delete().eq('id', userId);
+        if (error) throw new Error(error.message);
+        setUsers(prev => prev.filter(u => u.id !== userId));
+      } catch (err: any) {
+        alert('Gagal menghapus user: ' + err.message);
+      }
     }
   };
 
   // Actions for Packages/Orders
-  const handleSavePackage = (e: React.FormEvent) => {
+  const handleSavePackage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingPackage) return;
 
-    // If driver is assigned/changed, fill in driver details automatically from their UserProfile
     let finalPkg = { ...editingPackage };
     if (editingPackage.driverId && editingPackage.driverId !== 'none') {
       const selectedDriver = users.find(u => u.id === editingPackage.driverId);
@@ -100,18 +106,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       finalPkg.driverPlate = null;
     }
 
-    const updatedPackages = allPackages.map(p => p.id === finalPkg.id ? finalPkg : p);
-    savePackages(updatedPackages);
-    setAllPackages(updatedPackages);
-    setEditingPackage(null);
-    alert('Order berhasil diperbarui!');
+    try {
+      await api.updatePackage(finalPkg.id, finalPkg);
+      setAllPackages(prev => prev.map(p => p.id === finalPkg.id ? finalPkg : p));
+      setEditingPackage(null);
+      alert('Order berhasil diperbarui!');
+    } catch (err: any) {
+      alert('Gagal memperbarui order: ' + err.message);
+    }
   };
 
-  const handleDeletePackage = (pkgId: string) => {
+  const handleDeletePackage = async (pkgId: string) => {
     if (confirm('Hapus order ini secara permanen?')) {
-      const updatedPackages = allPackages.filter(p => p.id !== pkgId);
-      savePackages(updatedPackages);
-      setAllPackages(updatedPackages);
+      try {
+        await api.deletePackage(pkgId);
+        setAllPackages(prev => prev.filter(p => p.id !== pkgId));
+      } catch (err: any) {
+        alert('Gagal menghapus order: ' + err.message);
+      }
     }
   };
 
@@ -452,6 +464,43 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       />
                     </div>
                   </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div className="form-group">
+                      <label className="form-label">Ukuran Maks</label>
+                      <select
+                        className="form-select"
+                        value={editingUser.vehicle?.maxPackageSize ?? 'M'}
+                        onChange={e => setEditingUser({
+                          ...editingUser,
+                          vehicle: {
+                            ...(editingUser.vehicle as Vehicle),
+                            maxPackageSize: e.target.value as any,
+                          }
+                        })}
+                      >
+                        <option value="XS">XS</option>
+                        <option value="S">S</option>
+                        <option value="M">M</option>
+                        <option value="L">L</option>
+                        <option value="XL">XL</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Rating Driver</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="1.0"
+                        max="5.0"
+                        className="form-input"
+                        value={editingUser.rating ?? 4.8}
+                        onChange={e => setEditingUser({
+                          ...editingUser,
+                          rating: parseFloat(e.target.value) || 4.8,
+                        })}
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -601,6 +650,67 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <option key={dr.id} value={dr.id}>{dr.name} ({dr.vehicle?.type})</option>
                   ))}
                 </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div className="form-group">
+                  <label className="form-label">Kategori</label>
+                  <select
+                    className="form-select"
+                    value={editingPackage.category}
+                    onChange={e => setEditingPackage({ ...editingPackage, category: e.target.value })}
+                  >
+                    <option value="Dokumen">Dokumen</option>
+                    <option value="Makanan">Makanan</option>
+                    <option value="Pakaian">Pakaian</option>
+                    <option value="Elektronik">Elektronik</option>
+                    <option value="Lainnya">Lainnya</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Ukuran Barang</label>
+                  <select
+                    className="form-select"
+                    value={editingPackage.weightSize}
+                    onChange={e => setEditingPackage({ ...editingPackage, weightSize: e.target.value as any })}
+                  >
+                    <option value="XS">XS</option>
+                    <option value="S">S</option>
+                    <option value="M">M</option>
+                    <option value="L">L</option>
+                    <option value="XL">XL</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Deskripsi Barang</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editingPackage.description || ''}
+                  onChange={e => setEditingPackage({ ...editingPackage, description: e.target.value })}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Alamat Penjemputan</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editingPackage.pickupAddress || ''}
+                  onChange={e => setEditingPackage({ ...editingPackage, pickupAddress: e.target.value })}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Alamat Destinasi</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editingPackage.dropoffAddress || ''}
+                  onChange={e => setEditingPackage({ ...editingPackage, dropoffAddress: e.target.value })}
+                />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>

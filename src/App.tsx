@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
-  getPackages, getDriverRoute, getChatMessages,
-  getUserProfile, saveUserProfile, clearUserProfile,
-  subscribeToStorage, initializeStorage, getUsers, savePackages,
   type Package, type DriverRoute, type ChatMessage, type UserProfile,
 } from './lib/storage';
+import * as api from './lib/api';
+import { supabase } from './lib/supabase';
 
 // Components
 import { BottomNav } from './app/components/BottomNav';
@@ -37,21 +36,21 @@ import { AdminPanel } from './app/screens/admin/AdminPanel';
 
 const SIDEBAR_TABS = {
   pengirim: [
-    { id: 'beranda',   label: 'Beranda',   icon: 'home'        },
+    { id: 'beranda',   label: 'Beranda',    icon: 'home'        },
     { id: 'aktivitas', label: 'Paket Aktif', icon: 'assignment'  },
-    { id: 'riwayat',   label: 'Riwayat',   icon: 'history'     },
-    { id: 'chat',      label: 'Chat',       icon: 'chat_bubble' },
-    { id: 'setelan',   label: 'Profil',     icon: 'person'      },
+    { id: 'riwayat',   label: 'Riwayat',    icon: 'history'     },
+    { id: 'chat',      label: 'Chat',        icon: 'chat_bubble' },
+    { id: 'setelan',   label: 'Profil',      icon: 'person'      },
   ],
   driver: [
-    { id: 'beranda',   label: 'Beranda',   icon: 'home'         },
+    { id: 'beranda',   label: 'Beranda',    icon: 'home'         },
     { id: 'aktivitas', label: 'Rute Aktif', icon: 'alt_route'   },
     { id: 'riwayat',   label: 'Riwayat',   icon: 'history'      },
     { id: 'chat',      label: 'Chat',       icon: 'chat_bubble'  },
     { id: 'setelan',   label: 'Profil',     icon: 'person'       },
   ],
   admin: [
-    { id: 'beranda',   label: 'Dashboard',  icon: 'admin_panel_settings' },
+    { id: 'beranda',   label: 'Dashboard',   icon: 'admin_panel_settings' },
     { id: 'users',     label: 'Kelola User', icon: 'people' },
     { id: 'orders',    label: 'Kelola Order',icon: 'local_shipping' },
     { id: 'setelan',   label: 'Profil',      icon: 'person' },
@@ -59,17 +58,18 @@ const SIDEBAR_TABS = {
 };
 
 export default function App() {
-  const [authView, setAuthView] = useState<'login' | 'signup'>('signup');
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(() => getUserProfile());
-  const [screen,      setScreen]      = useState('Homepage');
-  const [selectedTab, setSelectedTab] = useState('beranda');
+  const [authView,     setAuthView]     = useState<'login' | 'signup'>('login');
+  const [userProfile,  setUserProfile]  = useState<UserProfile | null>(null);
+  const [authLoading,  setAuthLoading]  = useState(true);
+  const [screen,       setScreen]       = useState('Homepage');
+  const [selectedTab,  setSelectedTab]  = useState('beranda');
 
-  const [packages,    setPackages]    = useState<Package[]>([]);
-  const [driverRoute, setDriverRoute] = useState<DriverRoute>({
+  const [packages,     setPackages]     = useState<Package[]>([]);
+  const [driverRoute,  setDriverRoute]  = useState<DriverRoute>({
     departureTime: '08:00', waypoints: [], maxPackets: 3,
     maxPackageSize: 'L', acceptedCategories: [], active: false,
   });
-  const [messages,    setMessages]    = useState<ChatMessage[]>([]);
+  const [messages, _setMessages] = useState<ChatMessage[]>([]);
 
   const [draftPackage, setDraftPackage] = useState<any>({
     category: 'Dokumen', weightSize: 'S', photoName: '',
@@ -79,76 +79,58 @@ export default function App() {
     deliveryMethod: 'Bertemu Langsung', instruction: '', price: 0,
   });
 
-  // Check URL role override and load matching user profile on mount
-  useEffect(() => {
-    initializeStorage();
-    const allUsers = getUsers();
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlRole = urlParams.get('role');
-
-    if (urlRole === 'pengirim' || urlRole === 'driver' || urlRole === 'admin') {
-      const matchedUser = allUsers.find(u => u.role === urlRole);
-      if (matchedUser) {
-        setUserProfile(matchedUser);
-        // Note: We don't save to storage to let other tabs preserve their roles
-      }
-    }
+  // ── Reload packages from Supabase ────────────────────────────────────────────
+  const refreshPackages = useCallback(async () => {
+    const pkgs = await api.fetchPackages();
+    setPackages(pkgs);
   }, []);
 
-  // Sync state with local storage updates
+  // ── Resolve session on mount ─────────────────────────────────────────────────
   useEffect(() => {
-    initializeStorage();
-    setPackages(getPackages());
-    setDriverRoute(getDriverRoute());
-    setMessages(getChatMessages());
+    const resolveSession = async () => {
+      const profile = await api.getCurrentProfile();
+      setUserProfile(profile);
+      setAuthLoading(false);
+    };
 
-    const unsub = subscribeToStorage(() => {
-      setPackages(getPackages());
-      setDriverRoute(getDriverRoute());
-      setMessages(getChatMessages());
+    resolveSession();
 
-      // Only sync active profile if not overridden by URL parameter
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlRole = urlParams.get('role');
-      if (!urlRole) {
-        const u = getUserProfile();
-        if (u) setUserProfile(u);
+    // Listen for auth state changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        const profile = await api.fetchProfile(session.user.id);
+        if (profile) {
+          profile.email = session.user.email ?? '';
+          setUserProfile(profile);
+        }
+      } else {
+        setUserProfile(null);
       }
     });
-    return unsub;
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Background simulator: automatically assign random virtual drivers to packages with 'Mencari Driver' status
+  // ── Load and subscribe to packages once logged in ────────────────────────────
   useEffect(() => {
-    const interval = setInterval(() => {
-      const allPkgs = getPackages();
-      const pendingPkgs = allPkgs.filter(p => p.status === 'Mencari Driver');
-      if (pendingPkgs.length === 0) return;
+    if (!userProfile) return;
 
-      // Grab first pending package
-      const targetPkg = pendingPkgs[0];
+    refreshPackages();
 
-      // Grab a virtual driver
-      const drivers = getUsers().filter(u => u.role === 'driver');
-      const randomDriver = drivers[Math.floor(Math.random() * drivers.length)] || drivers[0];
+    const unsub = api.subscribeToPackages((updated) => {
+      setPackages(updated);
+    });
 
-      if (randomDriver) {
-        const updated = allPkgs.map(p => p.id === targetPkg.id ? {
-          ...p,
-          status: 'Menunggu Pick-up' as const,
-          driverId: randomDriver.id,
-          driverName: randomDriver.name,
-          driverPhone: randomDriver.phone,
-          driverAvatar: randomDriver.avatar ?? null,
-          driverVehicle: randomDriver.vehicle ? `${randomDriver.vehicle.type} (${randomDriver.vehicle.color})` : 'Motor',
-          driverPlate: randomDriver.vehicle?.plate ?? 'B 0000 XYZ',
-        } : p);
-        savePackages(updated);
-      }
-    }, 7000); // Run simulation every 7 seconds
+    return unsub;
+  }, [userProfile, refreshPackages]);
 
-    return () => clearInterval(interval);
-  }, []);
+  // ── Load driver route when logged in as driver ────────────────────────────────
+  useEffect(() => {
+    if (!userProfile || userProfile.role !== 'driver') return;
+    api.fetchDriverRoute(userProfile.id).then(route => {
+      if (route) setDriverRoute(route);
+    });
+  }, [userProfile]);
 
   const role = userProfile?.role ?? 'pengirim';
   const tabs = SIDEBAR_TABS[role];
@@ -160,18 +142,20 @@ export default function App() {
     setSelectedTab('beranda');
   };
 
-  const handleLogout = () => {
-    clearUserProfile();
+  const handleLogout = async () => {
+    await api.logout();
     setUserProfile(null);
+    setPackages([]);
     setAuthView('login');
     setScreen('Homepage');
     setSelectedTab('beranda');
   };
 
-  const switchRole = (newRole: 'pengirim' | 'driver' | 'admin') => {
+  const switchRole = async (newRole: 'pengirim' | 'driver' | 'admin') => {
     if (!userProfile) return;
+    // Only admin role check — pengirim↔driver switching is allowed for onboarding purposes
+    // Admin can only be promoted directly in the DB; this only switches display mode
     const updated = { ...userProfile, role: newRole };
-    saveUserProfile(updated);
     setUserProfile(updated);
     setScreen('Homepage');
     setSelectedTab('beranda');
@@ -184,47 +168,63 @@ export default function App() {
     setScreen('Homepage');
   };
 
-  // ── Auth gate ─────────────────────────────────────────────────────────────
+  // ── Loading state ─────────────────────────────────────────────────────────────
+  if (authLoading) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: '100vh', flexDirection: 'column', gap: '16px',
+        background: 'linear-gradient(135deg, #f0f4ff 0%, #e8effc 100%)',
+      }}>
+        <div style={{
+          width: '56px', height: '56px', borderRadius: '16px',
+          background: 'linear-gradient(135deg, #8eadf0, #2091e7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 8px 24px rgba(32,145,231,0.3)',
+          animation: 'pulse 1.5s ease-in-out infinite',
+        }}>
+          <span className="material-icons" style={{ fontSize: '28px', color: '#fff' }}>local_shipping</span>
+        </div>
+        <p style={{ fontSize: '14px', color: '#64748b', fontWeight: 500 }}>Memuat Kirimin…</p>
+      </div>
+    );
+  }
+
+  // ── Auth gate ─────────────────────────────────────────────────────────────────
   if (!userProfile) {
     return authView === 'signup'
       ? <AuthSignup onComplete={handleAuthComplete} onLogin={() => setAuthView('login')} />
       : <AuthLogin  onComplete={handleAuthComplete} onSignup={() => setAuthView('signup')} />;
   }
 
-  // ── Screen renderer ───────────────────────────────────────────────────────
+  // ── Screen renderer ───────────────────────────────────────────────────────────
   const renderScreen = () => {
     if (screen !== 'Homepage') {
       switch (screen) {
-        case 'KirimDetail':       return <KirimDetail navigate={navigateTo} draftPackage={draftPackage} setDraftPackage={setDraftPackage} />;
-        case 'KirimRute':         return <KirimRute   navigate={navigateTo} draftPackage={draftPackage} setDraftPackage={setDraftPackage} />;
-        case 'KirimPesan':        return <KirimPesan  navigate={navigateTo} draftPackage={draftPackage} setDraftPackage={setDraftPackage} />;
+        case 'KirimDetail':        return <KirimDetail navigate={navigateTo} draftPackage={draftPackage} setDraftPackage={setDraftPackage} />;
+        case 'KirimRute':          return <KirimRute   navigate={navigateTo} draftPackage={draftPackage} setDraftPackage={setDraftPackage} />;
+        case 'KirimPesan':         return <KirimPesan  navigate={navigateTo} draftPackage={draftPackage} setDraftPackage={setDraftPackage} driverRoute={driverRoute} />;
         case 'KirimMencariDriver': return <KirimMencariDriver navigate={navigateTo} draftPackage={draftPackage} />;
-        case 'KirimDash':         return <KirimDash   navigate={navigateTo} packages={packages} setSelectedTab={setSelectedTab} />;
-        case 'KirimRiwayat':      return <KirimRiwayat navigate={navigateTo} packages={packages} setDraftPackage={setDraftPackage} />;
-        case 'Angkut':            return <Angkut      navigate={navigateTo} />;
-        case 'AngkutDash':        return <AngkutDash  navigate={navigateTo} packages={packages} userProfile={userProfile} />;
-        case 'AngkutProses':      return <AngkutProses navigate={navigateTo} packages={packages} />;
-        case 'AngkutRiwayat':     return <AngkutRiwayat navigate={navigateTo} packages={packages} />;
+        case 'KirimDash':          return <KirimDash   navigate={navigateTo} packages={packages} setSelectedTab={setSelectedTab} />;
+        case 'KirimRiwayat':       return <KirimRiwayat navigate={navigateTo} packages={packages} setDraftPackage={setDraftPackage} />;
+        case 'Angkut':             return <Angkut      navigate={navigateTo} userProfile={userProfile} />;
+        case 'AngkutDash':         return <AngkutDash  navigate={navigateTo} packages={packages} userProfile={userProfile} />;
+        case 'AngkutProses':       return <AngkutProses navigate={navigateTo} packages={packages} userProfile={userProfile} />;
+        case 'AngkutRiwayat':      return <AngkutRiwayat navigate={navigateTo} packages={packages} />;
         default: break;
       }
     }
 
     switch (selectedTab) {
       case 'beranda':
-        if (role === 'admin') {
-          return <AdminPanel activeSection="dashboard" packages={packages} />;
-        }
-        return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} />;
+        if (role === 'admin') return <AdminPanel activeSection="dashboard" packages={packages} />;
+        return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} onSwitchRole={switchRole} />;
       case 'users':
-        if (role === 'admin') {
-          return <AdminPanel activeSection="users" packages={packages} />;
-        }
-        return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} />;
+        if (role === 'admin') return <AdminPanel activeSection="users" packages={packages} />;
+        return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} onSwitchRole={switchRole} />;
       case 'orders':
-        if (role === 'admin') {
-          return <AdminPanel activeSection="orders" packages={packages} />;
-        }
-        return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} />;
+        if (role === 'admin') return <AdminPanel activeSection="orders" packages={packages} />;
+        return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} onSwitchRole={switchRole} />;
       case 'aktivitas':
         return role === 'pengirim'
           ? <KirimDash   navigate={navigateTo} packages={packages} setSelectedTab={setSelectedTab} />
@@ -236,14 +236,9 @@ export default function App() {
       case 'chat':
         return <LiveChat role={role as any} packages={packages} messages={messages} />;
       case 'setelan':
-        return <SetelanAkun
-          role={role}
-          userProfile={userProfile}
-          onLogout={handleLogout}
-          onSwitchRole={switchRole}
-        />;
+        return <SetelanAkun role={role} userProfile={userProfile} onLogout={handleLogout} onSwitchRole={switchRole} />;
       default:
-        return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} />;
+        return <Homepage navigate={navigateTo} role={role} packages={packages} driverRoute={driverRoute} userProfile={userProfile} onSwitchRole={switchRole} />;
     }
   };
 
@@ -278,35 +273,42 @@ export default function App() {
         </div>
 
         {/* Nav items */}
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => handleTabChange(tab.id)}
-            className={`sidebar-nav-item ${selectedTab === tab.id && screen === 'Homepage' ? 'active' : ''}`}
-          >
-            <span className="material-icons" style={{ fontSize: '20px' }}>{tab.icon}</span>
-            {tab.label}
-            {tab.id === 'chat' && unreadChatCount > 0 && (
-              <span style={{
-                marginLeft: 'auto', background: '#ef4444', color: '#fff',
-                fontSize: '10px', fontWeight: 700, borderRadius: '50%',
-                minWidth: '18px', height: '18px', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-              }}>{unreadChatCount}</span>
-            )}
-          </button>
-        ))}
+        {tabs.map(tab => {
+          const isActive = selectedTab === tab.id && screen === 'Homepage';
+          return (
+            <button
+              key={tab.id}
+              onClick={() => handleTabChange(tab.id)}
+              className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
+            >
+              <span className={isActive ? 'material-icons' : 'material-icons-outlined'} style={{ fontSize: '20px' }}>
+                {tab.icon}
+              </span>
+              {tab.label}
+              {tab.id === 'chat' && unreadChatCount > 0 && (
+                <span style={{
+                  marginLeft: 'auto', background: '#ef4444', color: '#fff',
+                  fontSize: '10px', fontWeight: 700, borderRadius: '50%',
+                  minWidth: '18px', height: '18px', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>{unreadChatCount}</span>
+              )}
+            </button>
+          );
+        })}
 
-        {/* Switch role */}
+        {/* Switch role — only available if user is not admin */}
         <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <button
-            onClick={() => switchRole(role === 'pengirim' ? 'driver' : role === 'driver' ? 'admin' : 'pengirim')}
-            className="sidebar-nav-item"
-            style={{ marginBottom: '4px' }}
-          >
-            <span className="material-icons" style={{ fontSize: '18px' }}>swap_horiz</span>
-            Ganti Mode Peran
-          </button>
+          {role !== 'admin' && (
+            <button
+              onClick={() => switchRole(role === 'pengirim' ? 'driver' : 'pengirim')}
+              className="sidebar-nav-item"
+              style={{ marginBottom: '4px' }}
+            >
+              <span className="material-icons" style={{ fontSize: '18px' }}>swap_horiz</span>
+              Ganti Mode Peran
+            </button>
+          )}
           <button onClick={handleLogout} className="sidebar-nav-item" style={{ color: '#f87171' }}>
             <span className="material-icons" style={{ fontSize: '18px' }}>logout</span>
             Keluar
