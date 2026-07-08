@@ -204,7 +204,7 @@ export const KirimDash: React.FC<KirimDashProps> = ({
                         <span className="material-icons" style={{ fontSize: '15px' }}>chat</span>
                         Hubungi Driver
                       </button>
-                      {isWaiting && (
+                      {(isWaiting || pkg.status === 'Mencari Driver') && (
                         <button
                           onClick={() => handleCancel(pkg.id)}
                           style={{

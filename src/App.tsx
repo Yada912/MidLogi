@@ -69,7 +69,9 @@ export default function App() {
     departureTime: '08:00', waypoints: [], maxPackets: 3,
     maxPackageSize: 'L', acceptedCategories: [], active: false,
   });
-  const [messages, _setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  void setMessages; // kept for future use
 
   const [draftPackage, setDraftPackage] = useState<any>({
     category: 'Dokumen', weightSize: 'S', photoName: '',
@@ -211,6 +213,7 @@ export default function App() {
         case 'AngkutDash':         return <AngkutDash  navigate={navigateTo} packages={packages} userProfile={userProfile} />;
         case 'AngkutProses':       return <AngkutProses navigate={navigateTo} packages={packages} userProfile={userProfile} />;
         case 'AngkutRiwayat':      return <AngkutRiwayat navigate={navigateTo} packages={packages} />;
+        case 'setelan':            return <SetelanAkun role={role} userProfile={userProfile} onLogout={handleLogout} onSwitchRole={switchRole} />;
         default: break;
       }
     }
@@ -234,7 +237,7 @@ export default function App() {
           ? <KirimRiwayat  navigate={navigateTo} packages={packages} setDraftPackage={setDraftPackage} />
           : <AngkutRiwayat navigate={navigateTo} packages={packages} />;
       case 'chat':
-        return <LiveChat role={role as any} packages={packages} messages={messages} />;
+        return <LiveChat role={role as any} packages={packages} messages={messages} navigate={navigateTo} />;
       case 'setelan':
         return <SetelanAkun role={role} userProfile={userProfile} onLogout={handleLogout} onSwitchRole={switchRole} />;
       default:
@@ -313,8 +316,11 @@ export default function App() {
             <span className="material-icons" style={{ fontSize: '18px' }}>logout</span>
             Keluar
           </button>
-          {/* User info */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px', padding: '0 4px' }}>
+          {/* User info — click avatar/name to go to profile */}
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px', padding: '0 4px', cursor: 'pointer' }}
+            onClick={() => { setSelectedTab('setelan'); setScreen('Homepage'); }}
+          >
             <img
               src={userProfile.avatar}
               alt={userProfile.name}

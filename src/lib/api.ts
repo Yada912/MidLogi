@@ -147,12 +147,24 @@ function rowToMessage(row: any): ChatMessage {
   };
 }
 
+// ─── Error Helper ─────────────────────────────────────────────────────────────
+
+function getErrorMessage(error: any, defaultMsg: string): string {
+  if (!error) return defaultMsg;
+  let msg = error.message || error.error_description;
+  if (typeof error === 'string') msg = error;
+  if (!msg || msg === '{}' || msg === '"{}"' || msg === '[object Object]') {
+    return defaultMsg;
+  }
+  return msg;
+}
+
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 /** Sign in with email and password. Returns the profile on success. */
 export async function login(email: string, password: string): Promise<UserProfile> {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error || !data.user) throw new Error(error?.message ?? 'Login gagal');
+  if (error || !data.user) throw new Error(getErrorMessage(error, 'Email atau password salah.'));
 
   let profile = await fetchProfile(data.user.id);
 
@@ -176,7 +188,7 @@ export async function login(email: string, password: string): Promise<UserProfil
 
     if (insertError) {
       console.error('Auto-create profile failed:', insertError);
-      throw new Error('Gagal membuat profil otomatis. Hubungi admin.');
+      throw new Error(getErrorMessage(insertError, 'Gagal membuat profil otomatis. Hubungi admin.'));
     }
 
     profile = await fetchProfile(data.user.id);
@@ -203,13 +215,13 @@ export async function signup(
 
   if (error) {
     // Provide user-friendly messages for common errors
-    if (error.message.includes('rate limit')) {
+    if (error.message && error.message.includes('rate limit')) {
       throw new Error('Terlalu banyak percobaan. Coba lagi dalam beberapa menit.');
     }
-    if (error.message.includes('already registered')) {
+    if (error.message && error.message.includes('already registered')) {
       throw new Error('Email sudah terdaftar. Silakan login.');
     }
-    throw new Error(error.message || 'Registrasi gagal');
+    throw new Error(getErrorMessage(error, 'Registrasi gagal'));
   }
 
   if (!data.user) {
@@ -243,7 +255,7 @@ export async function signup(
   // If profile insert fails due to RLS (user not confirmed yet), that's okay —
   // we'll create the profile row on first login instead.
   if (insertError && !needsConfirmation) {
-    throw new Error(insertError.message || 'Gagal membuat profil.');
+    throw new Error(getErrorMessage(insertError, 'Gagal membuat profil.'));
   }
 
   if (needsConfirmation) {
@@ -304,7 +316,7 @@ export async function updateProfile(userId: string, updates: Partial<UserProfile
     .from('profiles')
     .update(profileToRow(updates))
     .eq('id', userId);
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(getErrorMessage(error, 'Gagal memperbarui profil.'));
 }
 
 export async function addEarnings(driverId: string, amount: number): Promise<void> {
@@ -338,7 +350,7 @@ export async function createPackage(pkg: Omit<Package, 'id' | 'createdAt'>): Pro
     .insert(row)
     .select()
     .single();
-  if (error || !data) throw new Error(error?.message ?? 'Gagal membuat paket');
+  if (error || !data) throw new Error(getErrorMessage(error, 'Gagal membuat paket'));
   return rowToPackage(data);
 }
 
@@ -346,13 +358,13 @@ export async function createPackage(pkg: Omit<Package, 'id' | 'createdAt'>): Pro
 export async function updatePackage(id: string, updates: Partial<Package>): Promise<void> {
   const row = packageToRow(updates as any);
   const { error } = await supabase.from('packages').update(row).eq('id', id);
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(getErrorMessage(error, 'Gagal memperbarui paket.'));
 }
 
 /** Delete a package (e.g. cancelled orders). */
 export async function deletePackage(id: string): Promise<void> {
   const { error } = await supabase.from('packages').delete().eq('id', id);
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(getErrorMessage(error, 'Gagal menghapus paket.'));
 }
 
 // ─── Driver Routes ────────────────────────────────────────────────────────────
@@ -377,7 +389,7 @@ export async function upsertDriverRoute(driverId: string, route: DriverRoute): P
     accepted_categories:  route.acceptedCategories,
     active:               route.active,
   }, { onConflict: 'driver_id' });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(getErrorMessage(error, 'Gagal menyimpan rute driver.'));
 }
 
 // ─── Chat Messages ────────────────────────────────────────────────────────────
@@ -404,7 +416,7 @@ export async function sendMessage(
     sender_role: senderRole,
     text,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(getErrorMessage(error, 'Gagal mengirim pesan.'));
 }
 
 // ─── Realtime subscriptions ───────────────────────────────────────────────────

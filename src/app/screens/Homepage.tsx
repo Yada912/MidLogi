@@ -329,7 +329,8 @@ export const Homepage: React.FC<HomepageProps> = ({
           <img
             src={userProfile.avatar}
             alt={userProfile.name}
-            style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #e2e8f0' }}
+            onClick={() => navigate('setelan')}
+            style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #e2e8f0', cursor: 'pointer' }}
           />
         </div>
       </div>

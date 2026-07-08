@@ -144,6 +144,43 @@ export const KirimPesan: React.FC<KirimPesanProps> = ({
     }
   };
 
+  // Auto-order: place order without selecting a specific driver (system finds one)
+  const handleAutoOrder = async () => {
+    const pkgData = {
+      category:        draftPackage.category,
+      weightSize:      draftPackage.weightSize,
+      photoName:       draftPackage.photoName || '',
+      handling:        draftPackage.handling || [],
+      description:     draftPackage.description || '',
+      pickupAddress:   draftPackage.pickupAddress,
+      pickupCoords:    draftPackage.pickupCoords,
+      dropoffAddress:  draftPackage.dropoffAddress,
+      dropoffCoords:   draftPackage.dropoffCoords,
+      deliveryMethod:  draftPackage.deliveryMethod,
+      instruction:     draftPackage.instruction || '',
+      deliveryTime:    deliveryTimeOption === 'Waktu Tertentu' ? `Jam ${specificTime}` : deliveryTimeOption,
+      status:          'Mencari Driver' as const,
+      price:           draftPackage.price,
+      detourFee:       0,
+      driverId:        null,
+      driverName:      null,
+      driverPhone:     null,
+      driverAvatar:    null,
+      driverVehicle:   null,
+      driverPlate:     null,
+      buktiFoto:       null,
+      paymentMethod:   'GoPay' as const,
+      paymentStatus:   'Pending' as const,
+    };
+    try {
+      const created = await api.createPackage(pkgData as any);
+      setDraftPackage(created);
+      navigate('KirimMencariDriver');
+    } catch (err: any) {
+      alert('Gagal memesan pengiriman: ' + err.message);
+    }
+  };
+
   const DriverCard = ({ driver }: { driver: any }) => {
     const isSelected = selectedDriverId === driver.id;
     const times = estTimes(driver.departureTime || '08:00', driver.match.detourDistance);
@@ -310,7 +347,51 @@ export const KirimPesan: React.FC<KirimPesanProps> = ({
         )}
       </div>
 
-      {/* ── Order Summary & Button ── */}
+      {/* ── Auto-Order Button ── */}
+      <div style={{
+        padding: '16px',
+        borderRadius: '20px',
+        background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+        border: '1.5px solid #86efac',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+      }}>
+        <button
+          onClick={handleAutoOrder}
+          style={{
+            width: '100%',
+            padding: '13px 16px',
+            borderRadius: '14px',
+            border: 'none',
+            background: 'linear-gradient(135deg, #34d399, #059669)',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            boxShadow: '0 4px 14px rgba(5,150,105,0.3)',
+            transition: 'all 0.2s',
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: '20px' }}>auto_awesome</span>
+          Pesan Sekarang (Otomatis)
+        </button>
+        <p style={{
+          fontSize: '11px',
+          color: '#166534',
+          margin: 0,
+          lineHeight: 1.5,
+          textAlign: 'center',
+        }}>
+          🤖 Tombol ini akan mengirim pesanan ke sistem secara otomatis. Sistem akan mencarikan driver yang searah dan tersedia tanpa perlu memilih manual.
+        </p>
+      </div>
+
+
       {selectedDriver && (
         <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <span style={{ fontSize: '13px', fontWeight: 700 }}>Rincian Biaya</span>

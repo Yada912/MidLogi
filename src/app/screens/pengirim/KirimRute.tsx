@@ -143,16 +143,22 @@ export const KirimRute: React.FC<KirimRuteProps> = ({
 
       <StepHeader currentStep={2} />
 
-      {/* ── Map ── */}
-      <MapPlaceholder
-        pickupPoint={pickupCoords ?? undefined}
-        dropoffPoint={dropoffCoords ?? undefined}
-        height="220px"
-        interactive={true}
-        pickMode={pickMode}
-        onLocationSelect={handleLocationSelect}
-        onExitPickMode={() => setPickMode(null)}
-      />
+      {/* ── Map — wrapped to block parent-scroll on touch/drag ── */}
+      <div
+        style={{ touchAction: 'none', userSelect: 'none' }}
+        onTouchStart={e => e.stopPropagation()}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <MapPlaceholder
+          pickupPoint={pickupCoords ?? undefined}
+          dropoffPoint={dropoffCoords ?? undefined}
+          height="220px"
+          interactive={true}
+          pickMode={pickMode}
+          onLocationSelect={handleLocationSelect}
+          onExitPickMode={() => setPickMode(null)}
+        />
+      </div>
 
       {pickMode && (
         <div style={{ fontSize: '12px', color: '#64748b', textAlign: 'center', padding: '4px 0' }}>

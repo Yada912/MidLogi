@@ -6,34 +6,27 @@ interface LiveChatProps {
   role: 'pengirim' | 'driver';
   packages: Package[];
   messages: ChatMessage[];
+  navigate?: (screen: string) => void;
 }
 
-export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) => {
+export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, navigate }) => {
   const [selectedPacketId, setSelectedPacketId] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
+  const [currentMessages, setCurrentMessages] = useState<ChatMessage[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const unsubRef = useRef<(() => void) | null>(null);
 
-  // Group messages by packetId to show in list
+  // Active packages that could have chats
   const activePackagesMap = new Map<string, Package>();
   packages.forEach(p => activePackagesMap.set(p.id, p));
 
-  // Get unique packetIds from messages or active packages that have a driver
-  const chatSessions = Array.from(
-    new Set([
-      ...messages.map(m => m.packetId),
-      ...packages
-        .filter(p => p.driverId && p.status !== 'Draft' && p.status !== 'Dibatalkan')
-        .map(p => p.id)
-    ])
-  ).map(packetId => {
-    const pkg = activePackagesMap.get(packetId);
-    const sessionMessages = messages.filter(m => m.packetId === packetId);
-    const lastMessage = sessionMessages[sessionMessages.length - 1];
-    
-    // Determine partner name
-    let partnerName = 'Layanan Pengiriman';
-    let partnerAvatar = '';
-    if (pkg) {
+  // Build chat session list from packages that have a driver or any known history
+  const chatSessions = packages
+    .filter(p => p.driverId && p.status !== 'Draft' && p.status !== 'Dibatalkan')
+    .map(pkg => {
+      let partnerName = 'Layanan Pengiriman';
+      let partnerAvatar = '';
       if (role === 'pengirim') {
         partnerName = pkg.driverName || 'Mencari Driver...';
         partnerAvatar = pkg.driverAvatar || '';
@@ -41,30 +34,48 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
         partnerName = 'Pengirim (' + pkg.category + ')';
         partnerAvatar = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&fit=crop&q=80';
       }
-    }
+      return {
+        packetId: pkg.id,
+        package: pkg,
+        partnerName,
+        partnerAvatar,
+      };
+    });
 
-    return {
-      packetId,
-      package: pkg,
-      partnerName,
-      partnerAvatar,
-      lastMessageText: lastMessage ? lastMessage.text : 'Belum ada pesan. Sapa mitra Anda!',
-      lastMessageTime: lastMessage ? new Date(lastMessage.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '',
-      unreadCount: sessionMessages.filter(m => m.senderRole !== role && !m.read).length
-    };
-  });
-
-  // Filter messages for current selected chat
-  const currentMessages = messages.filter(m => m.packetId === selectedPacketId);
   const selectedSession = chatSessions.find(s => s.packetId === selectedPacketId);
 
-  // Scroll to bottom when messages change or chat is opened
+  // Load messages & subscribe when a chat is opened
+  useEffect(() => {
+    if (!selectedPacketId) {
+      setCurrentMessages([]);
+      if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
+      return;
+    }
+
+    setLoadingMessages(true);
+    api.fetchMessages(selectedPacketId).then(msgs => {
+      setCurrentMessages(msgs);
+      setLoadingMessages(false);
+    });
+
+    // Subscribe to real-time messages for this packet
+    const unsub = api.subscribeToMessages(selectedPacketId, (msgs) => {
+      setCurrentMessages(msgs);
+    });
+    unsubRef.current = unsub;
+
+    return () => {
+      unsub();
+      unsubRef.current = null;
+    };
+  }, [selectedPacketId]);
+
+  // Scroll to bottom when messages change
   useEffect(() => {
     if (chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [selectedPacketId, messages]);
-
+  }, [currentMessages, selectedPacketId]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,15 +84,24 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
     setInputText('');
     try {
       await api.sendMessage(selectedPacketId, text, role);
+      // Optimistic update: add local message immediately
+      const optimistic: ChatMessage = {
+        id: 'opt_' + Date.now(),
+        packetId: selectedPacketId,
+        senderRole: role,
+        text,
+        timestamp: new Date().toISOString(),
+        read: true,
+      };
+      setCurrentMessages(prev => [...prev, optimistic]);
     } catch (err: any) {
       alert('Gagal mengirim pesan: ' + err.message);
     }
   };
 
   if (selectedPacketId && selectedSession) {
-    // Render Chat Room
     return (
-      <div 
+      <div
         style={{
           display: 'flex',
           flexDirection: 'column',
@@ -98,7 +118,7 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
         }}
       >
         {/* Chat Room Header */}
-        <div 
+        <div
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -110,29 +130,55 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
             borderTopRightRadius: '32px',
           }}
         >
-          <button 
+          <button
             onClick={() => setSelectedPacketId(null)}
             className="back-pill"
           >
             <span className="material-icons">arrow_back</span>
           </button>
-          
-          <img 
-            src={selectedSession.partnerAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&fit=crop&q=80'} 
+
+          <img
+            src={selectedSession.partnerAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&fit=crop&q=80'}
             alt={selectedSession.partnerName}
-            style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }}
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              objectFit: 'cover',
+              cursor: navigate ? 'pointer' : 'default',
+            }}
+            onClick={() => navigate?.('setelan')}
           />
-          
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: '15px', fontWeight: '700' }}>{selectedSession.partnerName}</span>
+
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <span
+              style={{ fontSize: '15px', fontWeight: '700', cursor: navigate ? 'pointer' : 'default' }}
+              onClick={() => navigate?.('setelan')}
+            >
+              {selectedSession.partnerName}
+            </span>
             <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 500 }}>
               {selectedSession.package ? `Paket: ${selectedSession.package.category}` : 'Umum'}
             </span>
           </div>
+
+          {/* Package status badge */}
+          {selectedSession.package && (
+            <span style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              padding: '4px 8px',
+              borderRadius: '8px',
+              background: '#f1f5f9',
+              color: '#64748b',
+            }}>
+              {selectedSession.package.status}
+            </span>
+          )}
         </div>
 
         {/* Chat Bubbles Scroll Area */}
-        <div 
+        <div
           style={{
             flex: 1,
             overflowY: 'auto',
@@ -142,16 +188,21 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
             gap: '12px',
           }}
         >
-          {currentMessages.length === 0 ? (
+          {loadingMessages ? (
+            <div style={{ margin: 'auto', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+              <span className="material-icons" style={{ fontSize: '32px', marginBottom: '8px', display: 'block' }}>hourglass_top</span>
+              Memuat pesan...
+            </div>
+          ) : currentMessages.length === 0 ? (
             <div style={{ margin: 'auto', textAlign: 'center', color: '#94a3b8', fontSize: '13px', padding: '20px' }}>
-              <span className="material-icons" style={{ fontSize: '48px', marginBottom: '8px' }}>chat</span>
+              <span className="material-icons" style={{ fontSize: '48px', marginBottom: '8px', display: 'block' }}>chat</span>
               <p>Mulai percakapan Anda.<br />Kirim pesan pertama sekarang!</p>
             </div>
           ) : (
             currentMessages.map((msg) => {
               const isSelf = msg.senderRole === role;
               return (
-                <div 
+                <div
                   key={msg.id}
                   style={{
                     alignSelf: isSelf ? 'flex-end' : 'flex-start',
@@ -161,8 +212,7 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
                     alignItems: isSelf ? 'flex-end' : 'flex-start',
                   }}
                 >
-                  {/* Bubble */}
-                  <div 
+                  <div
                     style={{
                       background: isSelf ? 'linear-gradient(135deg, #8eadf0 0%, #2091e7 100%)' : '#ffffff',
                       color: isSelf ? '#ffffff' : '#1e293b',
@@ -175,7 +225,6 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
                   >
                     {msg.text}
                   </div>
-                  {/* Timestamp */}
                   <span style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px', padding: '0 4px' }}>
                     {new Date(msg.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                   </span>
@@ -187,7 +236,7 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
         </div>
 
         {/* Input Bar */}
-        <form 
+        <form
           onSubmit={handleSendMessage}
           style={{
             padding: '16px',
@@ -199,7 +248,7 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
             borderBottomRightRadius: '32px',
           }}
         >
-          <input 
+          <input
             type="text"
             placeholder="Ketik pesan..."
             value={inputText}
@@ -214,20 +263,24 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
               outline: 'none',
             }}
           />
-          <button 
+          <button
             type="submit"
+            disabled={!inputText.trim()}
             style={{
               width: '44px',
               height: '44px',
               borderRadius: '50%',
-              background: 'linear-gradient(180deg, #8eadf0 0%, #2091e7 100%)',
-              color: '#ffffff',
+              background: inputText.trim()
+                ? 'linear-gradient(180deg, #8eadf0 0%, #2091e7 100%)'
+                : '#e2e8f0',
+              color: inputText.trim() ? '#ffffff' : '#94a3b8',
               border: 'none',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              cursor: 'pointer',
-              boxShadow: '0 4px 10px rgba(32,145,231,0.3)',
+              cursor: inputText.trim() ? 'pointer' : 'default',
+              boxShadow: inputText.trim() ? '0 4px 10px rgba(32,145,231,0.3)' : 'none',
+              transition: 'all 0.2s',
             }}
           >
             <span className="material-icons" style={{ fontSize: '20px', marginLeft: '2px' }}>send</span>
@@ -248,7 +301,7 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {chatSessions.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
-            <span className="material-icons" style={{ fontSize: '56px', color: '#cbd5e1', marginBottom: '12px' }}>
+            <span className="material-icons" style={{ fontSize: '56px', color: '#cbd5e1', marginBottom: '12px', display: 'block' }}>
               chat_bubble_outline
             </span>
             <p style={{ fontSize: '14px', fontWeight: 500 }}>Belum Ada Percakapan</p>
@@ -258,7 +311,7 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
           </div>
         ) : (
           chatSessions.map((session) => (
-            <div 
+            <div
               key={session.packetId}
               onClick={() => setSelectedPacketId(session.packetId)}
               className="premium-card"
@@ -270,11 +323,12 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
                 position: 'relative',
               }}
             >
-              {/* Avatar */}
-              <img 
-                src={session.partnerAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&fit=crop&q=80'} 
+              {/* Avatar — clicking navigates to profile */}
+              <img
+                src={session.partnerAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&fit=crop&q=80'}
                 alt={session.partnerName}
                 style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #e2e8f0' }}
+                onClick={(e) => { e.stopPropagation(); navigate?.('setelan'); }}
               />
 
               {/* Chat Text Details */}
@@ -284,43 +338,27 @@ export const LiveChat: React.FC<LiveChatProps> = ({ role, packages, messages }) 
                     {session.partnerName}
                   </span>
                   <span style={{ fontSize: '10px', color: '#94a3b8' }}>
-                    {session.lastMessageTime}
+                    {session.package ? session.package.status : ''}
                   </span>
                 </div>
-                <span 
-                  style={{ 
-                    fontSize: '12px', 
-                    color: session.unreadCount > 0 ? '#1e293b' : '#64748b', 
-                    fontWeight: session.unreadCount > 0 ? '600' : '400',
-                    whiteSpace: 'nowrap', 
-                    overflow: 'hidden', 
-                    textOverflow: 'ellipsis' 
+                <span
+                  style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    fontWeight: '400',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                   }}
                 >
-                  {session.lastMessageText}
+                  {session.package
+                    ? `📍 ${session.package.pickupAddress.split(',')[0]} → 🏁 ${session.package.dropoffAddress.split(',')[0]}`
+                    : 'Ketuk untuk memulai percakapan'}
                 </span>
               </div>
 
-              {/* Unread Badge */}
-              {session.unreadCount > 0 && (
-                <span 
-                  style={{
-                    background: '#2091e7',
-                    color: '#ffffff',
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    borderRadius: '50%',
-                    width: '18px',
-                    height: '18px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 2px 6px rgba(32, 145, 231, 0.4)',
-                  }}
-                >
-                  {session.unreadCount}
-                </span>
-              )}
+              {/* Arrow */}
+              <span className="material-icons" style={{ fontSize: '18px', color: '#cbd5e1' }}>chevron_right</span>
             </div>
           ))
         )}
