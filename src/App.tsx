@@ -4,6 +4,8 @@ import {
 } from './lib/storage';
 import * as api from './lib/api';
 import { supabase } from './lib/supabase';
+import logoBlue from './assets/logo-blue.svg';
+import logoWhite from './assets/logo-white.svg';
 
 // Components
 import { BottomNav } from './app/components/BottomNav';
@@ -178,15 +180,10 @@ export default function App() {
         height: '100vh', flexDirection: 'column', gap: '16px',
         background: 'linear-gradient(135deg, #f0f4ff 0%, #e8effc 100%)',
       }}>
-        <div style={{
-          width: '56px', height: '56px', borderRadius: '16px',
-          background: 'linear-gradient(135deg, #8eadf0, #2091e7)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 8px 24px rgba(32,145,231,0.3)',
+        <img src={logoBlue} alt="Kirimin" style={{
+          width: '56px', height: '56px',
           animation: 'pulse 1.5s ease-in-out infinite',
-        }}>
-          <span className="material-icons" style={{ fontSize: '28px', color: '#fff' }}>local_shipping</span>
-        </div>
+        }} />
         <p style={{ fontSize: '14px', color: '#64748b', fontWeight: 500 }}>Memuat Kirimin…</p>
       </div>
     );
@@ -254,13 +251,7 @@ export default function App() {
       <nav className="app-sidebar">
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 4px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: '8px' }}>
-          <div style={{
-            width: '36px', height: '36px', borderRadius: '10px',
-            background: 'linear-gradient(135deg, #8eadf0, #2091e7)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <span className="material-icons" style={{ fontSize: '20px', color: '#fff' }}>local_shipping</span>
-          </div>
+          <img src={logoWhite} alt="Kirimin" style={{ width: '36px', height: '36px' }} />
           <span style={{ fontSize: '18px', fontWeight: 800, color: '#f1f5f9' }}>Kirimin</span>
         </div>
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import * as api from '../../../lib/api';
 import type { UserProfile } from '../../../lib/storage';
+import logoBlue from '../../../assets/logo-blue.svg';
 
 interface AuthLoginProps {
   onComplete: (profile: UserProfile) => void;
@@ -33,15 +34,10 @@ export const AuthLogin: React.FC<AuthLoginProps> = ({ onComplete, onSignup }) =>
     <div className="auth-screen">
       <div className="auth-card">
         <div style={{ textAlign: 'center' }}>
-          <div style={{
-            width: '60px', height: '60px', borderRadius: '18px',
-            background: 'linear-gradient(135deg, #8eadf0, #2091e7)',
-            margin: '0 auto 12px', display: 'flex',
-            alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 8px 24px rgba(32,145,231,0.3)',
-          }}>
-            <span className="material-icons" style={{ fontSize: '32px', color: '#fff' }}>local_shipping</span>
-          </div>
+          <img src={logoBlue} alt="Kirimin" style={{
+            width: '60px', height: '60px',
+            margin: '0 auto 12px', display: 'block'
+          }} />
           <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1e293b' }}>Masuk ke Kirimin</h1>
           <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Gunakan email & password Anda</p>
         </div>
